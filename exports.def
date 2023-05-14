@@ -1,0 +1,4 @@
+LIBRARY	"Collision Visualizer VR"
+EXPORTS
+SKSEPlugin_Query
+SKSEPlugin_Load
