@@ -20,6 +20,7 @@
 #include <Physics/Collide/Shape/Misc/Transform/hkpTransformShape.h>
 #include <Physics/Collide/Shape/Convex/Triangle/hkpTriangleShape.h>
 
+#include "config.h"
 #include "havok.h"
 #include "offsets.h"
 #include "utils.h"
@@ -1097,14 +1098,14 @@ void DrawCollision()
         BSReadLocker lock(&world->worldLock);
 
         for (const hkpSimulationIsland *island : world->world->m_activeSimulationIslands) {
-            DrawIsland(island);
+            DrawIsland(island, Config::options.drawDistance);
         }
 
         for (const hkpSimulationIsland *island : world->world->m_inactiveSimulationIslands) {
-            DrawIsland(island);
+            DrawIsland(island, Config::options.drawDistance);
         }
 
-        DrawIsland(world->world->m_fixedIsland);
+        DrawIsland(world->world->m_fixedIsland, Config::options.drawDistance);
     }
 }
 
@@ -1239,6 +1240,13 @@ extern "C" {
     bool SKSEPlugin_Load(const SKSEInterface * skse)
     {	// Called by SKSE to load this plugin
         _MESSAGE("Collision Visualizer VR loaded");
+
+        if (Config::ReadConfigOptions()) {
+            _MESSAGE("Successfully read config parameters");
+        }
+        else {
+            _WARNING("[WARNING] Failed to read config options. Using defaults instead.");
+        }
 
         _MESSAGE("Registering for SKSE messages");
         g_messaging = (SKSEMessagingInterface*)skse->QueryInterface(kInterface_Messaging);

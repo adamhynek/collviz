@@ -160,6 +160,7 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\config.h" />
     <ClInclude Include="src\havok.h" />
     <ClInclude Include="src\havok_ref_ptr.h" />
     <ClInclude Include="src\offsets.h" />
@@ -167,6 +168,7 @@
     <ClInclude Include="src\version.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\config.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\offsets.cpp" />
     <ClCompile Include="src\utils.cpp" />
