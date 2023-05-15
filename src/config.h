@@ -6,7 +6,16 @@
 
 namespace Config {
 	struct Options {
+		int logLevel = IDebugLog::kLevel_Message;
+
 		float drawDistance = 50.f;
+		bool wireframe = true;
+		bool inflateByConvexRadius = true;
+		bool dedupConvexVertices = false;
+		float dedupConvexVerticesThreshold = 0.1f;
+		bool resetOnToggle = true;
+		NiColorA dynamicColor = { 1.f, 1.f, 1.f, 1.f };
+		NiColorA fixedColor = { 0.3f, 0.3f, 0.3f, 1.f };
 	};
 	extern Options options; // global object containing options
 

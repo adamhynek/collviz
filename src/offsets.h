@@ -12,6 +12,7 @@
 // It's the number of meters per skyrim unit
 extern RelocPtr<float> g_havokWorldScale;
 extern RelocPtr<float> g_inverseHavokWorldScale;
+extern RelocPtr<bool> g_refractionDebug;
 
 typedef bhkWorld *(*_GetHavokWorldFromCell)(TESObjectCELL *cell);
 extern RelocAddr<_GetHavokWorldFromCell> GetHavokWorldFromCell;

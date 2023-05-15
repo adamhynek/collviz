@@ -255,12 +255,23 @@ ShapeBuffers CreateVertexAndIndexBuffers(std::vector<Vertex> &vertices, std::vec
     return buffers;
 }
 
+struct PerFrameVSData
+{
+    XMMATRIX matProjView[2];
+};
+
+struct PerObjectVSData
+{
+    XMMATRIX matModel[2];
+    NiColorA color;
+};
+
 void CreateConstantBuffers()
 {
     // Create camera buffer
     D3D11_BUFFER_DESC cameraBufferDesc;
     cameraBufferDesc.Usage = D3D11_USAGE_DYNAMIC;
-    cameraBufferDesc.ByteWidth = 2 * sizeof(XMMATRIX); // 2 eye viewProj matrices
+    cameraBufferDesc.ByteWidth = sizeof(PerFrameVSData);
     cameraBufferDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     cameraBufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     cameraBufferDesc.MiscFlags = 0;
@@ -271,7 +282,7 @@ void CreateConstantBuffers()
     // Create model buffer
     D3D11_BUFFER_DESC modelBufferDesc;
     modelBufferDesc.Usage = D3D11_USAGE_DYNAMIC;
-    modelBufferDesc.ByteWidth = 2 * sizeof(XMMATRIX); // 2 model transforms, 1 for each eye
+    modelBufferDesc.ByteWidth = sizeof(PerObjectVSData);
     modelBufferDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     modelBufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     modelBufferDesc.MiscFlags = 0;
@@ -343,17 +354,6 @@ PS_OUTPUT main(PS_INPUT input) {
     return output;
 }
         )";
-
-struct PerFrameVSData
-{
-    XMMATRIX matProjView[2];
-};
-
-struct PerObjectVSData
-{
-    XMMATRIX matModel[2];
-    NiColorA color;
-};
 
 void CreateShaders()
 {
@@ -461,7 +461,7 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetTriangleVertices(hkpTriangl
 
     std::vector<WORD> indices = { 0, 1, 2 };
 
-    return std::make_pair(vertices, indices);
+    return { vertices, indices };
 }
 
 std::pair<std::vector<Vertex>, std::vector<WORD>> GetTriangleListVertices(const hkpShapeContainer *container)
@@ -494,10 +494,10 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetTriangleListVertices(const 
         shapeKey = container->getNextKey(shapeKey);
     }
 
-    return std::make_pair(vertices, indices);
+    return { vertices, indices };
 }
 
-std::pair<std::vector<Vertex>, std::vector<WORD>> GetBoxVertices(hkVector4 &a_halfExtents, float a_radius = 0.f, bool inflateByConvexRadius = true)
+std::pair<std::vector<Vertex>, std::vector<WORD>> GetBoxVertices(hkVector4 &a_halfExtents, float a_radius)
 {
     NiPoint3 halfExtents = HkVectorToNiPoint(a_halfExtents);
 
@@ -519,7 +519,7 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetBoxVertices(hkVector4 &a_ha
     }
 
     float radius = a_radius * *g_inverseHavokWorldScale;
-    if (inflateByConvexRadius && radius > 0.f) {
+    if (Config::options.inflateByConvexRadius && radius > 0.f) {
         for (Vertex &vertex : vertices) {
             vertex.pos.x += vertex.pos.x >= 0.f ? radius : -radius;
             vertex.pos.y += vertex.pos.y >= 0.f ? radius : -radius;
@@ -536,7 +536,7 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetBoxVertices(hkVector4 &a_ha
         3, 7, 2, 2, 7, 6,
     };
 
-    return std::make_pair(vertices, indices);
+    return { vertices, indices };
 }
 
 std::pair<std::vector<Vertex>, std::vector<WORD>> GetSphereVertices(float radius)
@@ -581,7 +581,7 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetSphereVertices(float radius
         }
     }
 
-    return std::make_pair(vertices, indices);
+    return { vertices, indices };
 }
 
 std::pair<std::vector<Vertex>, std::vector<WORD>> GetCapsuleVertices(hkVector4 &a_vertexA, hkVector4 &a_vertexB, float a_radius, int numSegments = 12)
@@ -680,13 +680,13 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetCapsuleVertices(hkVector4 &
                 int index = ring * (numSegments + 1) + segment;
                 index += numVerts;
 
+                sphereIndices.push_back(index + 1);
+                sphereIndices.push_back(index + numSegments + 1);
                 sphereIndices.push_back(index);
-                sphereIndices.push_back(index + numSegments + 1);
-                sphereIndices.push_back(index + 1);
 
-                sphereIndices.push_back(index + 1);
-                sphereIndices.push_back(index + numSegments + 1);
                 sphereIndices.push_back(index + numSegments + 2);
+                sphereIndices.push_back(index + numSegments + 1);
+                sphereIndices.push_back(index + 1);
             }
         }
 
@@ -718,13 +718,13 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetCapsuleVertices(hkVector4 &
                 int index = ring * (numSegments + 1) + segment;
                 index += numVerts;
 
+                sphereIndices.push_back(index + 1);
+                sphereIndices.push_back(index + numSegments + 1);
                 sphereIndices.push_back(index);
-                sphereIndices.push_back(index + numSegments + 1);
-                sphereIndices.push_back(index + 1);
 
-                sphereIndices.push_back(index + 1);
-                sphereIndices.push_back(index + numSegments + 1);
                 sphereIndices.push_back(index + numSegments + 2);
+                sphereIndices.push_back(index + numSegments + 1);
+                sphereIndices.push_back(index + 1);
             }
         }
     }
@@ -738,7 +738,7 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetCapsuleVertices(hkVector4 &
     indices.insert(indices.end(), cylinderIndices.begin(), cylinderIndices.end());
     indices.insert(indices.end(), sphereIndices.begin(), sphereIndices.end());
 
-    return std::make_pair(vertices, indices);
+    return { vertices, indices };
 }
 
 std::vector<std::tuple<int, int, int>> GenerateTrianglesForConvexHull(const std::vector<Vertex> &a_vertices)
@@ -811,7 +811,7 @@ std::vector<std::tuple<int, int, int>> GenerateTrianglesForConvexHull(const std:
 
 hkArray<hkVector4> g_scratchHkArray{}; // We can't call the destructor of this ourselves, so this is a global array to be used at will and never deallocated.
 
-std::pair<std::vector<Vertex>, std::vector<WORD>> GetConvexVerticesShapeVertices(hkpConvexVerticesShape *shape, bool inflateByConvexRadius = true, bool deduplicateVerts = false)
+std::pair<std::vector<Vertex>, std::vector<WORD>> GetConvexVerticesShapeVertices(hkpConvexVerticesShape *shape)
 {
     g_scratchHkArray.clear();
     hkArray<hkVector4> &verts = g_scratchHkArray;
@@ -820,16 +820,20 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetConvexVerticesShapeVertices
     std::vector<Vertex> vertices{};
     std::vector<WORD> indices{};
 
+    // TODO: Handle the case where all vertices lie on the same plane (like potatoes)
+    // TODO: Do multiple iterations of the convex radius inflation to get a better approximation of the shape, if the convex radius is large enough
+    // TODO: Don't do the convex radius inflation if the convex radius is small enough
+
     // First, create the vertex buffer from the given verts
     for (hkVector4 &vert : verts) {
         Vertex vertex;
         vertex.pos = HkVectorToNiPoint(vert) * *g_inverseHavokWorldScale;
 
         bool isDuplicate = false;
-        if (deduplicateVerts) {
+        if (Config::options.dedupConvexVertices) {
             // This is kind of slow
             for (Vertex &other : vertices) {
-                if (VectorLengthSquared(other.pos - vertex.pos) < 0.0001f) {
+                if (VectorLengthSquared(other.pos - vertex.pos) < Config::options.dedupConvexVerticesThreshold) {
                     isDuplicate = true;
                     break;
                 }
@@ -845,26 +849,77 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetConvexVerticesShapeVertices
     std::vector<std::tuple<int, int, int>> triangles = GenerateTrianglesForConvexHull(vertices);
 
     float convexRadius = shape->getRadius();
-    if (inflateByConvexRadius && convexRadius > 0.f) {
-        std::vector<NiPoint3> normals(vertices.size());
-        for (auto &triangle : triangles) {
-            auto [i, j, k] = triangle;
+    if (Config::options.inflateByConvexRadius && convexRadius > 0.f) {
+        std::vector<Vertex> newVertices{};
 
-            NiPoint3 A = vertices[i].pos;
-            NiPoint3 B = vertices[j].pos;
-            NiPoint3 C = vertices[k].pos;
-
-            NiPoint3 unnormalizedNormal = CrossProduct(B - A, C - A);
-            normals[i] += unnormalizedNormal;
-            normals[j] += unnormalizedNormal;
-            normals[k] += unnormalizedNormal;
-        }
-
+        // Extrude a new vertex for each triangle touching each original vertex
         for (int i = 0; i < vertices.size(); i++) {
-            Vertex &vertex = vertices[i];
-            NiPoint3 normal = VectorNormalized(normals[i]);
-            vertex.pos += normal * convexRadius * *g_inverseHavokWorldScale;
+            std::vector<std::tuple<int, int, int>> adjacentTriangles{};
+            for (auto &triangle : triangles) {
+                auto [p, j, k] = triangle;
+                if (p == i || j == i || k == i) {
+                    adjacentTriangles.push_back(triangle);
+                }
+            }
+
+            for (auto &triangle : adjacentTriangles) {
+                auto [p, j, k] = triangle;
+
+                NiPoint3 A = vertices[p].pos;
+                NiPoint3 B = vertices[j].pos;
+                NiPoint3 C = vertices[k].pos;
+
+                NiPoint3 normal = VectorNormalized(CrossProduct(B - A, C - A));
+                NiPoint3 newVert = vertices[i].pos + normal * convexRadius * *g_inverseHavokWorldScale;
+
+                newVertices.push_back({ newVert });
+            }
         }
+
+        { // Also extrude a new vertex in the direction of the vertex normal
+            std::vector<NiPoint3> normals(vertices.size());
+            for (auto &triangle : triangles) {
+                auto [i, j, k] = triangle;
+
+                NiPoint3 A = vertices[i].pos;
+                NiPoint3 B = vertices[j].pos;
+                NiPoint3 C = vertices[k].pos;
+
+                NiPoint3 unnormalizedNormal = CrossProduct(B - A, C - A);
+                normals[i] += unnormalizedNormal;
+                normals[j] += unnormalizedNormal;
+                normals[k] += unnormalizedNormal;
+            }
+
+            for (int i = 0; i < vertices.size(); i++) {
+                Vertex &vertex = vertices[i];
+                NiPoint3 normal = VectorNormalized(normals[i]);
+                NiPoint3 newVert = vertex.pos + normal * convexRadius * *g_inverseHavokWorldScale;
+
+                newVertices.push_back({ newVert });
+            }
+        }
+
+        // Do another deduplication pass
+        vertices = {};
+        for (Vertex &vertex : newVertices) {
+            bool isDuplicate = false;
+            if (Config::options.dedupConvexVertices) {
+                // This is kind of slow
+                for (Vertex &other : vertices) {
+                    if (VectorLengthSquared(other.pos - vertex.pos) < Config::options.dedupConvexVerticesThreshold) {
+                        isDuplicate = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!isDuplicate) {
+                vertices.push_back(vertex);
+            }
+        }
+
+        triangles = GenerateTrianglesForConvexHull(vertices);
     }
 
     for (auto &triangle : triangles) {
@@ -874,7 +929,7 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetConvexVerticesShapeVertices
         indices.push_back(vert2);
     }
 
-    return std::make_pair(vertices, indices);
+    return { vertices, indices };
 }
 
 bool IsListShape(const hkpShape *shape)
@@ -882,7 +937,7 @@ bool IsListShape(const hkpShape *shape)
     return shape->getType() == hkpShapeType::HK_SHAPE_LIST || shape->getType() == hkpShapeType::HK_SHAPE_CONVEX_LIST || shape->getType() == hkpShapeType::HK_SHAPE_MOPP;
 }
 
-void DrawShape(const hkpShape *shape, const NiTransform &transform, const NiColorA &color = { 1.f, 1.f, 1.f, 1.f })
+void DrawShape(const hkpShape *shape, const NiTransform &transform, const NiColorA &color)
 {
     bhkShape *shapeWrapper = (bhkShape *)shape->m_userData;
     if (!shapeWrapper) return;
@@ -897,7 +952,7 @@ void DrawShape(const hkpShape *shape, const NiTransform &transform, const NiColo
         while (shapeKey != HK_INVALID_SHAPE_KEY) {
             if (const hkpShape *childShape = container->getChildShape(shapeKey, buffer)) {
                 if (childShape->getType() != hkpShapeType::HK_SHAPE_TRIANGLE) {
-                    DrawShape(childShape, transform);
+                    DrawShape(childShape, transform, color);
                 }
             }
             shapeKey = container->getNextKey(shapeKey);
@@ -910,7 +965,7 @@ void DrawShape(const hkpShape *shape, const NiTransform &transform, const NiColo
         if (!transformShape) return;
 
         NiTransform childTransform = transform * hkTransformToNiTransform(transformShape->getTransform());
-        DrawShape(transformShape->getChildShape(), childTransform);
+        DrawShape(transformShape->getChildShape(), childTransform, color);
 
         return;
     }
@@ -919,7 +974,7 @@ void DrawShape(const hkpShape *shape, const NiTransform &transform, const NiColo
         if (!transformShape) return;
 
         NiTransform childTransform = transform * hkTransformToNiTransform(transformShape->getTransform());
-        DrawShape(transformShape->getChildShape(), childTransform);
+        DrawShape(transformShape->getChildShape(), childTransform, color);
 
         return;
     }
@@ -1010,7 +1065,7 @@ void DrawShape(const hkpShape *shape, const NiTransform &transform, const NiColo
     g_renderGlobals->deviceContext->DrawIndexedInstanced(it->second.numIndices, 2, 0, 0, 0);
 }
 
-void DrawObject(hkpRigidBody *rigidBody, float drawDistance = 50.f)
+void DrawObject(hkpRigidBody *rigidBody, float drawDistance)
 {
     UInt32 filterInfo = rigidBody->getCollisionFilterInfo();
     if (filterInfo >> 14 & 1) return; // collision is disabled
@@ -1024,16 +1079,16 @@ void DrawObject(hkpRigidBody *rigidBody, float drawDistance = 50.f)
     aabb.expandBy(drawDistance);
     if (!aabb.containsPoint(NiPointToHkVector((*g_thePlayer)->pos * *g_havokWorldScale))) return;
 
-    NiColorA color = { 1.f, 1.f, 1.f, 1.f };
+    NiColorA color = Config::options.dynamicColor;
     hkpMotion::MotionType motionType = rigidBody->getMotionType();
     if (motionType == hkpMotion::MOTION_FIXED) {
-        color = { 0.3f, 0.3f, 0.3f, 1.f };
+        color = Config::options.fixedColor;
     }
 
     DrawShape(shape, hkTransformToNiTransform(transform), color);
 }
 
-void DrawIsland(const hkpSimulationIsland *island, float drawDistance = 50.f)
+void DrawIsland(const hkpSimulationIsland *island, float drawDistance)
 {
     for (hkpEntity *entity : island->getEntities()) {
         if (hkpRigidBody *rigidBody = DYNAMIC_CAST(entity, hkpEntity, hkpRigidBody)) {
@@ -1110,30 +1165,49 @@ void DrawCollision()
 }
 
 bool g_drawCollisionInitialized = false;
+bool g_wasRefractionDebugLastFrame = false;
 
 void DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_Hook(NiCamera *camera, void *shaderAccumulator, UInt32 flags)
 {
-    if (!g_drawCollisionInitialized) {
-        CreateShaders();
-        CreateConstantBuffers();
+    bool refractionDebug = *g_refractionDebug;
+    if (refractionDebug) {
+        // Use ToggleRefractionDebug (unused console command) to toggle our collision visualizer
 
-        D3D11_RASTERIZER_DESC desc;
-        desc.FillMode = D3D11_FILL_WIREFRAME;
-        desc.CullMode = D3D11_CULL_NONE;
-        desc.FrontCounterClockwise = true;
-        desc.DepthBias = 0.f;
-        desc.DepthBiasClamp = -100.f;
-        desc.SlopeScaledDepthBias = 0.f;
-        desc.DepthClipEnable = true;
-        desc.ScissorEnable = false;
-        desc.MultisampleEnable = false;
-        desc.AntialiasedLineEnable = false;
-        g_renderGlobals->device->CreateRasterizerState(&desc, &g_rasterizerState);
+        if (!g_drawCollisionInitialized) {
+            CreateShaders();
+            CreateConstantBuffers();
 
-        g_drawCollisionInitialized = true;
+            D3D11_RASTERIZER_DESC desc;
+            if (Config::options.wireframe) {
+                desc.FillMode = D3D11_FILL_WIREFRAME;
+                desc.CullMode = D3D11_CULL_NONE;
+            }
+            else {
+                desc.FillMode = D3D11_FILL_SOLID;
+                desc.CullMode = D3D11_CULL_BACK;
+            }
+            desc.FrontCounterClockwise = true;
+            desc.DepthBias = 0.f;
+            desc.DepthBiasClamp = -100.f;
+            desc.SlopeScaledDepthBias = 0.f;
+            desc.DepthClipEnable = true;
+            desc.ScissorEnable = false;
+            desc.MultisampleEnable = false;
+            desc.AntialiasedLineEnable = false;
+            g_renderGlobals->device->CreateRasterizerState(&desc, &g_rasterizerState);
+
+            g_drawCollisionInitialized = true;
+        }
+
+        DrawCollision();
+    }
+    else if (!g_wasRefractionDebugLastFrame) {
+        if (Config::options.resetOnToggle) {
+            g_shapeBuffers.clear();
+        }
     }
 
-    DrawCollision();
+    g_wasRefractionDebugLastFrame = refractionDebug;
 
     NiCamera_FinishAccumulatingPostResolveDepth(camera, shaderAccumulator, flags);
 }
@@ -1247,6 +1321,9 @@ extern "C" {
         else {
             _WARNING("[WARNING] Failed to read config options. Using defaults instead.");
         }
+
+        gLog.SetPrintLevel((IDebugLog::LogLevel)Config::options.logLevel);
+        gLog.SetLogLevel((IDebugLog::LogLevel)Config::options.logLevel);
 
         _MESSAGE("Registering for SKSE messages");
         g_messaging = (SKSEMessagingInterface*)skse->QueryInterface(kInterface_Messaging);

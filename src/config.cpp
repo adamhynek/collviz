@@ -69,9 +69,32 @@ namespace Config {
 		return true;
 	}
 
+	bool ReadColor(const std::string &name, NiColor &vec)
+	{
+		if (!ReadFloat(name + "R", vec.r)) return false;
+		if (!ReadFloat(name + "G", vec.g)) return false;
+		if (!ReadFloat(name + "B", vec.b)) return false;
+
+		return true;
+	}
+
 	bool ReadConfigOptions()
 	{
+		if (!ReadInt("logLevel", options.logLevel)) return false;
 		if (!ReadFloat("drawDistance", options.drawDistance)) return false;
+		if (!ReadBool("wireframe", options.wireframe)) return false;
+		if (!ReadBool("inflateByConvexRadius", options.inflateByConvexRadius)) return false;
+		if (!ReadBool("dedupConvexVertices", options.dedupConvexVertices)) return false;
+		if (!ReadFloat("dedupConvexVerticesThreshold", options.dedupConvexVerticesThreshold)) return false;
+		if (!ReadBool("resetOnToggle", options.resetOnToggle)) return false;
+
+		NiColor dynamicColor;
+		if (!ReadColor("dynamicColor", dynamicColor)) return false;
+		options.dynamicColor = { dynamicColor.r, dynamicColor.g, dynamicColor.b, 1.f };
+
+		NiColor fixedColor;
+		if (!ReadColor("fixedColor", fixedColor)) return false;
+		options.fixedColor = { fixedColor.r, fixedColor.g, fixedColor.b, 1.f };
 
 		return true;
 	}
