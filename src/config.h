@@ -11,8 +11,9 @@ namespace Config {
 		float drawDistance = 50.f;
 		bool wireframe = true;
 		bool inflateByConvexRadius = true;
-		bool dedupConvexVertices = false;
-		float dedupConvexVerticesThreshold = 0.1f;
+		bool dedupConvexVertices = true;
+		float dedupConvexVerticesThreshold = 1.f;
+		bool duplicatePlanarShapeVertices = true;
 		bool resetOnToggle = true;
 		NiColorA dynamicColor = { 1.f, 1.f, 1.f, 1.f };
 		NiColorA fixedColor = { 0.3f, 0.3f, 0.3f, 1.f };

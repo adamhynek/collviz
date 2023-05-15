@@ -811,6 +811,23 @@ std::vector<std::tuple<int, int, int>> GenerateTrianglesForConvexHull(const std:
 
 hkArray<hkVector4> g_scratchHkArray{}; // We can't call the destructor of this ourselves, so this is a global array to be used at will and never deallocated.
 
+bool AreVerticesInTheSamePlane(std::vector<Vertex> &vertices)
+{
+    if (vertices.size() <= 3) return true;
+
+    NiPoint3 normal = VectorNormalized(CrossProduct(vertices[1].pos - vertices[0].pos, vertices[2].pos - vertices[0].pos));
+
+    for (int i = 3; i < vertices.size(); i++) {
+        NiPoint3 testNormal = VectorNormalized(CrossProduct(vertices[i].pos - vertices[0].pos, vertices[i].pos - vertices[1].pos));
+
+        if (abs(DotProduct(normal, testNormal)) < 0.999f) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 std::pair<std::vector<Vertex>, std::vector<WORD>> GetConvexVerticesShapeVertices(hkpConvexVerticesShape *shape)
 {
     g_scratchHkArray.clear();
@@ -820,7 +837,6 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetConvexVerticesShapeVertices
     std::vector<Vertex> vertices{};
     std::vector<WORD> indices{};
 
-    // TODO: Handle the case where all vertices lie on the same plane (like potatoes)
     // TODO: Do multiple iterations of the convex radius inflation to get a better approximation of the shape, if the convex radius is large enough
     // TODO: Don't do the convex radius inflation if the convex radius is small enough
 
@@ -842,6 +858,15 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetConvexVerticesShapeVertices
 
         if (!isDuplicate) {
             vertices.push_back(vertex);
+        }
+    }
+
+    if (Config::options.duplicatePlanarShapeVertices && AreVerticesInTheSamePlane(vertices)) {
+        // Create duplicate vertices that are slightly offset, in the direction of the plane
+        NiPoint3 normal = VectorNormalized(CrossProduct(vertices[1].pos - vertices[0].pos, vertices[2].pos - vertices[0].pos));
+        int numVerts = vertices.size(); // get the size before we start adding new vertices
+        for (int i = 0; i < numVerts; i++) {
+            vertices.push_back({ vertices[i].pos + normal * 0.01f });
         }
     }
 
