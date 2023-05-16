@@ -209,7 +209,34 @@ struct ShapeBuffers
     ID3D11Buffer *indexBuffer;
     UINT numIndices;
 };
-std::unordered_map<const bhkShape *, ShapeBuffers> g_shapeBuffers{};
+
+struct ShapeIdentifier
+{
+    // Why does this class exist?
+    // It's because we can't just use shapes to index into the map, as the memory for a shape can get re-used at a later time, which would lead to incorrectly re-using the buffers for the wrong shape.
+
+    const bhkRigidBody *rigidBodyWrapper;
+    const hkpRigidBody *rigidBody;
+    const bhkShape *shapeWrapper;
+    const hkpShape *shape;
+
+    struct Hash
+    {
+        std::size_t operator()(const ShapeIdentifier &k) const
+        {
+            return (UInt64)k.rigidBodyWrapper ^ (UInt64)k.rigidBody ^ (UInt64)k.shapeWrapper ^ (UInt64)k.shape;
+        }
+    };
+
+    struct Equal
+    {
+        bool operator()(const ShapeIdentifier &lhs, const ShapeIdentifier &rhs) const
+        {
+            return lhs.rigidBodyWrapper == rhs.rigidBodyWrapper && lhs.rigidBody == rhs.rigidBody && lhs.shapeWrapper == rhs.shapeWrapper && lhs.shape == rhs.shape;
+        }
+    };
+};
+std::unordered_map<ShapeIdentifier, ShapeBuffers, ShapeIdentifier::Hash, ShapeIdentifier::Equal> g_shapeBuffers{};
 
 struct Vertex
 {
@@ -813,7 +840,7 @@ hkArray<hkVector4> g_scratchHkArray{}; // We can't call the destructor of this o
 
 bool AreVerticesInTheSamePlane(std::vector<Vertex> &vertices)
 {
-    if (vertices.size() <= 3) return true;
+    if (vertices.size() <= 3) return false;
 
     NiPoint3 normal = VectorNormalized(CrossProduct(vertices[1].pos - vertices[0].pos, vertices[2].pos - vertices[0].pos));
 
@@ -932,7 +959,7 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetConvexVerticesShapeVertices
             if (Config::options.dedupConvexVertices) {
                 // This is kind of slow
                 for (Vertex &other : vertices) {
-                    if (VectorLengthSquared(other.pos - vertex.pos) < Config::options.dedupConvexVerticesThreshold) {
+                    if (VectorLengthSquared(other.pos - vertex.pos) < Config::options.dedupConvexVerticesThresholdCleanup) {
                         isDuplicate = true;
                         break;
                     }
@@ -962,7 +989,7 @@ bool IsListShape(const hkpShape *shape)
     return shape->getType() == hkpShapeType::HK_SHAPE_LIST || shape->getType() == hkpShapeType::HK_SHAPE_CONVEX_LIST || shape->getType() == hkpShapeType::HK_SHAPE_MOPP;
 }
 
-void DrawShape(const hkpShape *shape, const NiTransform &transform, const NiColorA &color)
+void DrawShape(const bhkRigidBody *rigidBody, const hkpShape *shape, const NiTransform &transform, const NiColorA &color)
 {
     bhkShape *shapeWrapper = (bhkShape *)shape->m_userData;
     if (!shapeWrapper) return;
@@ -977,7 +1004,7 @@ void DrawShape(const hkpShape *shape, const NiTransform &transform, const NiColo
         while (shapeKey != HK_INVALID_SHAPE_KEY) {
             if (const hkpShape *childShape = container->getChildShape(shapeKey, buffer)) {
                 if (childShape->getType() != hkpShapeType::HK_SHAPE_TRIANGLE) {
-                    DrawShape(childShape, transform, color);
+                    DrawShape(rigidBody, childShape, transform, color);
                 }
             }
             shapeKey = container->getNextKey(shapeKey);
@@ -990,7 +1017,7 @@ void DrawShape(const hkpShape *shape, const NiTransform &transform, const NiColo
         if (!transformShape) return;
 
         NiTransform childTransform = transform * hkTransformToNiTransform(transformShape->getTransform());
-        DrawShape(transformShape->getChildShape(), childTransform, color);
+        DrawShape(rigidBody, transformShape->getChildShape(), childTransform, color);
 
         return;
     }
@@ -999,13 +1026,14 @@ void DrawShape(const hkpShape *shape, const NiTransform &transform, const NiColo
         if (!transformShape) return;
 
         NiTransform childTransform = transform * hkTransformToNiTransform(transformShape->getTransform());
-        DrawShape(transformShape->getChildShape(), childTransform, color);
+        DrawShape(rigidBody, transformShape->getChildShape(), childTransform, color);
 
         return;
     }
 
     // If we've already created the vertex and index buffers for this shape, use them. Otherwise, create them.
-    auto &it = g_shapeBuffers.find(shapeWrapper);
+    ShapeIdentifier shapeIdentifier{ rigidBody, rigidBody->hkBody, shapeWrapper, shape };
+    auto &it = g_shapeBuffers.find(shapeIdentifier);
     if (it == g_shapeBuffers.end()) {
         if (IsListShape(shape)) {
             const hkpShapeContainer *container = shape->getContainer();
@@ -1013,10 +1041,10 @@ void DrawShape(const hkpShape *shape, const NiTransform &transform, const NiColo
 
             auto [vertices, indices] = GetTriangleListVertices(container);
             if (vertices.size() > 0) {
-                g_shapeBuffers[shapeWrapper] = CreateVertexAndIndexBuffers(vertices, indices);
+                g_shapeBuffers[shapeIdentifier] = CreateVertexAndIndexBuffers(vertices, indices);
             }
             else {
-                g_shapeBuffers[shapeWrapper] = { nullptr, nullptr, 0 };
+                g_shapeBuffers[shapeIdentifier] = { nullptr, nullptr, 0 };
             }
         }
         else if (shape->getType() == hkpShapeType::HK_SHAPE_BOX) {
@@ -1026,7 +1054,7 @@ void DrawShape(const hkpShape *shape, const NiTransform &transform, const NiColo
             hkVector4 halfExtents = boxShape->getHalfExtents();
             float radius = boxShape->getRadius();
             auto [vertices, indices] = GetBoxVertices(halfExtents, radius);
-            g_shapeBuffers[shapeWrapper] = CreateVertexAndIndexBuffers(vertices, indices);
+            g_shapeBuffers[shapeIdentifier] = CreateVertexAndIndexBuffers(vertices, indices);
         }
         else if (shape->getType() == hkpShapeType::HK_SHAPE_SPHERE) {
             hkpSphereShape *sphereShape = DYNAMIC_CAST(shape, hkpShape, hkpSphereShape);
@@ -1034,7 +1062,7 @@ void DrawShape(const hkpShape *shape, const NiTransform &transform, const NiColo
 
             float radius = sphereShape->getRadius();
             auto [vertices, indices] = GetSphereVertices(radius);
-            g_shapeBuffers[shapeWrapper] = CreateVertexAndIndexBuffers(vertices, indices);
+            g_shapeBuffers[shapeIdentifier] = CreateVertexAndIndexBuffers(vertices, indices);
         }
         else if (shape->getType() == hkpShapeType::HK_SHAPE_CAPSULE) {
             hkpCapsuleShape *capsuleShape = DYNAMIC_CAST(shape, hkpShape, hkpCapsuleShape);
@@ -1044,14 +1072,14 @@ void DrawShape(const hkpShape *shape, const NiTransform &transform, const NiColo
             hkVector4 vertexB = capsuleShape->getVertex(1);
             float radius = capsuleShape->getRadius();
             auto [vertices, indices] = GetCapsuleVertices(vertexA, vertexB, radius);
-            g_shapeBuffers[shapeWrapper] = CreateVertexAndIndexBuffers(vertices, indices);
+            g_shapeBuffers[shapeIdentifier] = CreateVertexAndIndexBuffers(vertices, indices);
         }
         else if (shape->getType() == hkpShapeType::HK_SHAPE_CONVEX_VERTICES) {
             hkpConvexVerticesShape *convexVerticesShape = DYNAMIC_CAST(shape, hkpShape, hkpConvexVerticesShape);
             if (!convexVerticesShape) return;
 
             auto [vertices, indices] = GetConvexVerticesShapeVertices(convexVerticesShape);
-            g_shapeBuffers[shapeWrapper] = CreateVertexAndIndexBuffers(vertices, indices);
+            g_shapeBuffers[shapeIdentifier] = CreateVertexAndIndexBuffers(vertices, indices);
         }
         else {
             // TODO:
@@ -1061,7 +1089,7 @@ void DrawShape(const hkpShape *shape, const NiTransform &transform, const NiColo
             return;
         }
 
-        it = g_shapeBuffers.find(shapeWrapper);
+        it = g_shapeBuffers.find(shapeIdentifier);
     }
 
     if (it->second.numIndices == 0) return;
@@ -1090,8 +1118,11 @@ void DrawShape(const hkpShape *shape, const NiTransform &transform, const NiColo
     g_renderGlobals->deviceContext->DrawIndexedInstanced(it->second.numIndices, 2, 0, 0, 0);
 }
 
-void DrawObject(hkpRigidBody *rigidBody, float drawDistance)
+void DrawObject(const hkpRigidBody *rigidBody, float drawDistance)
 {
+    bhkRigidBody *wrapper = (bhkRigidBody *)rigidBody->m_userData;
+    if (!wrapper) return;
+
     UInt32 filterInfo = rigidBody->getCollisionFilterInfo();
     if (filterInfo >> 14 & 1) return; // collision is disabled
 
@@ -1110,7 +1141,7 @@ void DrawObject(hkpRigidBody *rigidBody, float drawDistance)
         color = Config::options.fixedColor;
     }
 
-    DrawShape(shape, hkTransformToNiTransform(transform), color);
+    DrawShape(wrapper, shape, hkTransformToNiTransform(transform), color);
 }
 
 void DrawIsland(const hkpSimulationIsland *island, float drawDistance)
