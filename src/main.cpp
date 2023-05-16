@@ -1223,6 +1223,9 @@ void DrawCollision()
 bool g_drawCollisionInitialized = false;
 bool g_wasRefractionDebugLastFrame = false;
 
+auto DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_HookLoc = RelocPtr<_GetNodeFromCollidable>(0x1323E3E);
+_NiCamera_FinishAccumulatingPostResolveDepth DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_Original = 0;
+
 void DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_Hook(NiCamera *camera, void *shaderAccumulator, UInt32 flags)
 {
     bool refractionDebug = *g_refractionDebug;
@@ -1265,16 +1268,27 @@ void DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_Hook(NiCamera *came
 
     g_wasRefractionDebugLastFrame = refractionDebug;
 
-    NiCamera_FinishAccumulatingPostResolveDepth(camera, shaderAccumulator, flags);
+    DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_Original(camera, shaderAccumulator, flags);
 }
 
 
-auto DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_HookLoc = RelocPtr<_GetNodeFromCollidable>(0x1323E3E);
+std::uintptr_t Write5Call(std::uintptr_t a_src, std::uintptr_t a_dst)
+{
+    const auto disp = reinterpret_cast<std::int32_t *>(a_src + 1);
+    const auto nextOp = a_src + 5;
+    const auto func = nextOp + *disp;
+
+    g_branchTrampoline.Write5Call(a_src, a_dst);
+
+    return func;
+}
+
 
 void PerformHooks()
 {
     {
-        g_branchTrampoline.Write5Call(DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_HookLoc.GetUIntPtr(), uintptr_t(DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_Hook));
+        std::uintptr_t originalFunc = Write5Call(DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_HookLoc.GetUIntPtr(), uintptr_t(DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_Hook));
+        DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_Original = (_NiCamera_FinishAccumulatingPostResolveDepth)originalFunc;
         _MESSAGE("DoColorPass NiCamera::FinishAccumulatingPostResolveDepth hook complete");
     }
 }
