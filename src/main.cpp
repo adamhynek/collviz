@@ -524,48 +524,6 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetTriangleListVertices(const 
     return { vertices, indices };
 }
 
-std::pair<std::vector<Vertex>, std::vector<WORD>> GetBoxVertices(hkVector4 &a_halfExtents, float a_radius)
-{
-    NiPoint3 halfExtents = HkVectorToNiPoint(a_halfExtents);
-
-    std::vector<Vertex> vertices = {
-            {{-1.f, -1.f, -1.f}},
-            {{-1.f, -1.f,  1.f}},
-            {{-1.f,  1.f, -1.f}},
-            {{-1.f,  1.f,  1.f}},
-            {{ 1.f, -1.f, -1.f}},
-            {{ 1.f, -1.f,  1.f}},
-            {{ 1.f,  1.f, -1.f}},
-            {{ 1.f,  1.f,  1.f}}
-    };
-
-    for (Vertex &vertex : vertices) {
-        vertex.pos.x *= halfExtents.x * *g_inverseHavokWorldScale;
-        vertex.pos.y *= halfExtents.y * *g_inverseHavokWorldScale;
-        vertex.pos.z *= halfExtents.z * *g_inverseHavokWorldScale;
-    }
-
-    float radius = a_radius * *g_inverseHavokWorldScale;
-    if (Config::options.inflateByConvexRadius && radius > 0.f) {
-        for (Vertex &vertex : vertices) {
-            vertex.pos.x += vertex.pos.x >= 0.f ? radius : -radius;
-            vertex.pos.y += vertex.pos.y >= 0.f ? radius : -radius;
-            vertex.pos.z += vertex.pos.z >= 0.f ? radius : -radius;
-        }
-    }
-
-    std::vector<WORD> indices = {
-        0, 1, 2, 2, 1, 3,
-        4, 0, 6, 6, 0, 2,
-        7, 5, 6, 6, 5, 4,
-        3, 1, 7, 7, 1, 5,
-        4, 5, 0, 0, 5, 1,
-        3, 7, 2, 2, 7, 6,
-    };
-
-    return { vertices, indices };
-}
-
 std::pair<std::vector<Vertex>, std::vector<WORD>> GetSphereVertices(float radius)
 {
     radius *= *g_inverseHavokWorldScale;
@@ -855,52 +813,11 @@ bool AreVerticesInTheSamePlane(std::vector<Vertex> &vertices)
     return true;
 }
 
-std::pair<std::vector<Vertex>, std::vector<WORD>> GetConvexVerticesShapeVertices(hkpConvexVerticesShape *shape)
+std::vector<std::tuple<int, int, int>> TriangulateConvexVertices(std::vector<Vertex> &vertices, float convexRadius)
 {
-    g_scratchHkArray.clear();
-    hkArray<hkVector4> &verts = g_scratchHkArray;
-    hkpConvexVerticesShape_getOriginalVertices(shape, verts);
-
-    std::vector<Vertex> vertices{};
-    std::vector<WORD> indices{};
-
-    // TODO: Do multiple iterations of the convex radius inflation to get a better approximation of the shape, if the convex radius is large enough
-    // TODO: Don't do the convex radius inflation if the convex radius is small enough
-
-    // First, create the vertex buffer from the given verts
-    for (hkVector4 &vert : verts) {
-        Vertex vertex;
-        vertex.pos = HkVectorToNiPoint(vert) * *g_inverseHavokWorldScale;
-
-        bool isDuplicate = false;
-        if (Config::options.dedupConvexVertices) {
-            // This is kind of slow
-            for (Vertex &other : vertices) {
-                if (VectorLengthSquared(other.pos - vertex.pos) < Config::options.dedupConvexVerticesThreshold) {
-                    isDuplicate = true;
-                    break;
-                }
-            }
-        }
-
-        if (!isDuplicate) {
-            vertices.push_back(vertex);
-        }
-    }
-
-    if (Config::options.duplicatePlanarShapeVertices && AreVerticesInTheSamePlane(vertices)) {
-        // Create duplicate vertices that are slightly offset, in the direction of the plane
-        NiPoint3 normal = VectorNormalized(CrossProduct(vertices[1].pos - vertices[0].pos, vertices[2].pos - vertices[0].pos));
-        int numVerts = vertices.size(); // get the size before we start adding new vertices
-        for (int i = 0; i < numVerts; i++) {
-            vertices.push_back({ vertices[i].pos + normal * 0.01f });
-        }
-    }
-
-    // Now, we need to figure out which vertices to join into triangles for this convex shape
+    // Generate the initial convex hull
     std::vector<std::tuple<int, int, int>> triangles = GenerateTrianglesForConvexHull(vertices);
 
-    float convexRadius = shape->getRadius();
     if (Config::options.inflateByConvexRadius && convexRadius > 0.f) {
         std::vector<Vertex> newVertices{};
 
@@ -971,9 +888,92 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetConvexVerticesShapeVertices
             }
         }
 
+        // Re-generate the convex hull with the new vertices
         triangles = GenerateTrianglesForConvexHull(vertices);
     }
 
+    return triangles;
+}
+
+std::pair<std::vector<Vertex>, std::vector<WORD>> GetConvexVerticesShapeVertices(hkpConvexVerticesShape *shape)
+{
+    g_scratchHkArray.clear();
+    hkArray<hkVector4> &verts = g_scratchHkArray;
+    hkpConvexVerticesShape_getOriginalVertices(shape, verts);
+
+    std::vector<Vertex> vertices{};
+    std::vector<WORD> indices{};
+
+    // TODO: Do multiple iterations of the convex radius inflation to get a better approximation of the shape, if the convex radius is large enough
+    // TODO: Don't do the convex radius inflation if the convex radius is small enough
+
+    // First, create the vertex buffer from the given verts
+    for (hkVector4 &vert : verts) {
+        Vertex vertex;
+        vertex.pos = HkVectorToNiPoint(vert) * *g_inverseHavokWorldScale;
+
+        bool isDuplicate = false;
+        if (Config::options.dedupConvexVertices) {
+            // This is kind of slow
+            for (Vertex &other : vertices) {
+                if (VectorLengthSquared(other.pos - vertex.pos) < Config::options.dedupConvexVerticesThreshold) {
+                    isDuplicate = true;
+                    break;
+                }
+            }
+        }
+
+        if (!isDuplicate) {
+            vertices.push_back(vertex);
+        }
+    }
+
+    if (Config::options.duplicatePlanarShapeVertices && AreVerticesInTheSamePlane(vertices)) {
+        // Create duplicate vertices that are slightly offset, in the direction of the plane
+        NiPoint3 normal = VectorNormalized(CrossProduct(vertices[1].pos - vertices[0].pos, vertices[2].pos - vertices[0].pos));
+        int numVerts = vertices.size(); // get the size before we start adding new vertices
+        for (int i = 0; i < numVerts; i++) {
+            vertices.push_back({ vertices[i].pos + normal * 0.01f });
+        }
+    }
+
+    // Now, we need to figure out which vertices to join into triangles for this convex shape
+    std::vector<std::tuple<int, int, int>> triangles = TriangulateConvexVertices(vertices, shape->getRadius());
+
+    for (auto &triangle : triangles) {
+        auto [vert0, vert1, vert2] = triangle;
+        indices.push_back(vert0);
+        indices.push_back(vert1);
+        indices.push_back(vert2);
+    }
+
+    return { vertices, indices };
+}
+
+std::pair<std::vector<Vertex>, std::vector<WORD>> GetBoxVertices(hkVector4 &a_halfExtents, float convexRadius)
+{
+    NiPoint3 halfExtents = HkVectorToNiPoint(a_halfExtents);
+
+    std::vector<Vertex> vertices = {
+            {{-1.f, -1.f, -1.f}},
+            {{-1.f, -1.f,  1.f}},
+            {{-1.f,  1.f, -1.f}},
+            {{-1.f,  1.f,  1.f}},
+            {{ 1.f, -1.f, -1.f}},
+            {{ 1.f, -1.f,  1.f}},
+            {{ 1.f,  1.f, -1.f}},
+            {{ 1.f,  1.f,  1.f}}
+    };
+
+    for (Vertex &vertex : vertices) {
+        vertex.pos.x *= halfExtents.x * *g_inverseHavokWorldScale;
+        vertex.pos.y *= halfExtents.y * *g_inverseHavokWorldScale;
+        vertex.pos.z *= halfExtents.z * *g_inverseHavokWorldScale;
+    }
+
+    std::vector<std::tuple<int, int, int>> triangles = TriangulateConvexVertices(vertices, convexRadius);
+
+    std::vector<WORD> indices{};
     for (auto &triangle : triangles) {
         auto [vert0, vert1, vert2] = triangle;
         indices.push_back(vert0);
