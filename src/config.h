@@ -12,6 +12,9 @@ namespace Config {
 
         bool wireframe = true;
 
+        int numSphereSegments = 12;
+        int numCapsuleSegments = 12;
+
         bool inflateByConvexRadius = true;
         bool dedupConvexVertices = true;
         float dedupConvexVerticesThreshold = 0.001f;

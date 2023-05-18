@@ -554,8 +554,8 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetSphereVertices(float radius
     std::vector<Vertex> vertices;
     std::vector<WORD> indices;
 
-    const int numRings = 12;
-    const int numSegments = 12;
+    int numSegments = Config::options.numSphereSegments;
+    int numRings = numSegments;
 
     for (int ring = 0; ring <= numRings; ring++) {
         const float v = ring / (float)numRings;
@@ -592,9 +592,11 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetSphereVertices(float radius
     return { vertices, indices };
 }
 
-std::pair<std::vector<Vertex>, std::vector<WORD>> GetCapsuleVertices(hkVector4 &a_vertexA, hkVector4 &a_vertexB, float a_radius, int numSegments = 12)
+std::pair<std::vector<Vertex>, std::vector<WORD>> GetCapsuleVertices(hkVector4 &a_vertexA, hkVector4 &a_vertexB, float a_radius)
 {
     // Create vertices and indices for a capsule shape with the given radius and endpoints
+
+    int numSegments = Config::options.numCapsuleSegments;
 
     const int numRings = numSegments / 2; // Each cap is half a sphere, so use half the number of segments
 

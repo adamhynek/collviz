@@ -96,6 +96,9 @@ namespace Config {
 
         if (!ReadBool("wireframe", options.wireframe)) return false;
 
+        if (!ReadInt("numSphereSegments", options.numSphereSegments)) return false;
+        if (!ReadInt("numCapsuleSegments", options.numCapsuleSegments)) return false;
+
         if (!ReadBool("inflateByConvexRadius", options.inflateByConvexRadius)) return false;
         if (!ReadBool("dedupConvexVertices", options.dedupConvexVertices)) return false;
         if (!ReadFloat("dedupConvexVerticesThreshold", options.dedupConvexVerticesThreshold)) return false;
