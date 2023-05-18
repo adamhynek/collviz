@@ -13,6 +13,7 @@
 extern RelocPtr<float> g_havokWorldScale;
 extern RelocPtr<float> g_inverseHavokWorldScale;
 extern RelocPtr<bool> g_refractionDebug;
+extern RelocPtr<int> g_currentFrameCounter;
 
 typedef bhkWorld *(*_GetHavokWorldFromCell)(TESObjectCELL *cell);
 extern RelocAddr<_GetHavokWorldFromCell> GetHavokWorldFromCell;

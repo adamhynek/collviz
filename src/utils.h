@@ -35,3 +35,11 @@ NiPoint3 CrossProduct(const NiPoint3 &vec1, const NiPoint3 &vec2);
 NiPoint3 RotateVectorByAxisAngle(const NiPoint3 &vector, const NiPoint3 &axis, float angle);
 void HkMatrixToNiMatrix(const hkMatrix3 &hkMat, NiMatrix33 &niMat);
 NiTransform hkTransformToNiTransform(const hkTransform &t, float scale = 1.f, bool useHavokScale = true);
+
+inline UInt32 GetCollisionLayer(UInt32 collisionFilterInfo) { return collisionFilterInfo & 0x7f; }
+inline void SetCollisionLayer(hkUint32 &collisionFilterInfo, UInt32 layer) {
+    collisionFilterInfo &= ~(0x7f); // zero out layer
+    collisionFilterInfo |= (layer & 0x7f); // set layer to the same as a dead ragdoll
+}
+inline UInt32 GetCollisionLayer(const hkpRigidBody *rigidBody) { return GetCollisionLayer(rigidBody->getCollisionFilterInfo()); }
+inline void SetCollisionLayer(hkpRigidBody *rigidBody, UInt32 layer) { return SetCollisionLayer(rigidBody->getCollidableRw()->getBroadPhaseHandle()->m_collisionFilterInfo, layer); }

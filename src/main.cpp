@@ -31,7 +31,6 @@
 static PluginHandle	g_pluginHandle = kPluginHandle_Invalid;
 static SKSEMessagingInterface *g_messaging = nullptr;
 
-SKSEVRInterface *g_vrInterface = nullptr;
 SKSETrampolineInterface *g_trampoline = nullptr;
 
 
@@ -316,6 +315,30 @@ void CreateConstantBuffers()
     modelBufferDesc.StructureByteStride = 0;
 
     g_renderGlobals->device->CreateBuffer(&modelBufferDesc, nullptr, &g_modelBuffer);
+}
+
+ID3D11RasterizerState *g_rasterizerState = nullptr;
+
+void CreateRasterizerState()
+{
+    D3D11_RASTERIZER_DESC desc;
+    if (Config::options.wireframe) {
+        desc.FillMode = D3D11_FILL_WIREFRAME;
+        desc.CullMode = D3D11_CULL_NONE;
+    }
+    else {
+        desc.FillMode = D3D11_FILL_SOLID;
+        desc.CullMode = D3D11_CULL_BACK;
+    }
+    desc.FrontCounterClockwise = true;
+    desc.DepthBias = 0.f;
+    desc.DepthBiasClamp = -100.f;
+    desc.SlopeScaledDepthBias = 0.f;
+    desc.DepthClipEnable = true;
+    desc.ScissorEnable = false;
+    desc.MultisampleEnable = false;
+    desc.AntialiasedLineEnable = false;
+    g_renderGlobals->device->CreateRasterizerState(&desc, &g_rasterizerState);
 }
 
 ID3D11InputLayout *g_inputLayout = nullptr;
@@ -1118,13 +1141,16 @@ void DrawShape(const bhkRigidBody *rigidBody, const hkpShape *shape, const NiTra
     g_renderGlobals->deviceContext->DrawIndexedInstanced(it->second.numIndices, 2, 0, 0, 0);
 }
 
-void DrawObject(const hkpRigidBody *rigidBody, float drawDistance)
+void DrawRigidBody(const hkpRigidBody *rigidBody, float drawDistance)
 {
     bhkRigidBody *wrapper = (bhkRigidBody *)rigidBody->m_userData;
     if (!wrapper) return;
 
     UInt32 filterInfo = rigidBody->getCollisionFilterInfo();
     if (filterInfo >> 14 & 1) return; // collision is disabled
+
+    UInt32 layer = GetCollisionLayer(rigidBody);
+    if (!((UInt64(1) << layer) & Config::options.drawLayersBitfield)) return;
 
     const hkpShape *shape = rigidBody->getCollidable()->getShape();
     if (!shape) return;
@@ -1148,25 +1174,15 @@ void DrawIsland(const hkpSimulationIsland *island, float drawDistance)
 {
     for (hkpEntity *entity : island->getEntities()) {
         if (hkpRigidBody *rigidBody = DYNAMIC_CAST(entity, hkpEntity, hkpRigidBody)) {
-            DrawObject(rigidBody, drawDistance);
+            DrawRigidBody(rigidBody, drawDistance);
         }
     }
 }
-
-ID3D11RasterizerState *g_rasterizerState = nullptr;
 
 bhkWorld *g_prevWorld = nullptr;
 
 void DrawCollision()
 {
-    // Setup constant buffers
-    // Set VS and PS shaders
-    // Set input layout
-    // Set primitive topology
-    // Set vertex buffer
-    // Set index buffer
-    // Draw
-
     g_renderGlobals->deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     g_renderGlobals->deviceContext->RSSetState(g_rasterizerState);
@@ -1208,15 +1224,21 @@ void DrawCollision()
     {
         BSReadLocker lock(&world->worldLock);
 
-        for (const hkpSimulationIsland *island : world->world->m_activeSimulationIslands) {
-            DrawIsland(island, Config::options.drawDistance);
+        if (Config::options.drawActiveIslands) {
+            for (const hkpSimulationIsland *island : world->world->m_activeSimulationIslands) {
+                DrawIsland(island, Config::options.drawDistance);
+            }
         }
 
-        for (const hkpSimulationIsland *island : world->world->m_inactiveSimulationIslands) {
-            DrawIsland(island, Config::options.drawDistance);
+        if (Config::options.drawInactiveIslands) {
+            for (const hkpSimulationIsland *island : world->world->m_inactiveSimulationIslands) {
+                DrawIsland(island, Config::options.drawDistance);
+            }
         }
 
-        DrawIsland(world->world->m_fixedIsland, Config::options.drawDistance);
+        if (Config::options.drawFixedIsland) {
+            DrawIsland(world->world->m_fixedIsland, Config::options.drawDistance);
+        }
     }
 }
 
@@ -1232,35 +1254,23 @@ void DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_Hook(NiCamera *came
     if (refractionDebug) {
         // Use ToggleRefractionDebug (unused console command) to toggle our collision visualizer
 
+        if (!g_wasRefractionDebugLastFrame) {
+            _MESSAGE("%d: Draw collision on", *g_currentFrameCounter);
+            Config::ReloadIfModified();
+        }
+
         if (!g_drawCollisionInitialized) {
             CreateShaders();
             CreateConstantBuffers();
-
-            D3D11_RASTERIZER_DESC desc;
-            if (Config::options.wireframe) {
-                desc.FillMode = D3D11_FILL_WIREFRAME;
-                desc.CullMode = D3D11_CULL_NONE;
-            }
-            else {
-                desc.FillMode = D3D11_FILL_SOLID;
-                desc.CullMode = D3D11_CULL_BACK;
-            }
-            desc.FrontCounterClockwise = true;
-            desc.DepthBias = 0.f;
-            desc.DepthBiasClamp = -100.f;
-            desc.SlopeScaledDepthBias = 0.f;
-            desc.DepthClipEnable = true;
-            desc.ScissorEnable = false;
-            desc.MultisampleEnable = false;
-            desc.AntialiasedLineEnable = false;
-            g_renderGlobals->device->CreateRasterizerState(&desc, &g_rasterizerState);
+            CreateRasterizerState();
 
             g_drawCollisionInitialized = true;
         }
 
         DrawCollision();
     }
-    else if (!g_wasRefractionDebugLastFrame) {
+    else if (g_wasRefractionDebugLastFrame) {
+        _MESSAGE("%d: Draw collision off", *g_currentFrameCounter);
         if (Config::options.resetOnToggle) {
             g_shapeBuffers.clear();
         }
@@ -1293,14 +1303,13 @@ void PerformHooks()
     }
 }
 
-
 bool TryHook()
 {
     // This should be sized to the actual amount used by your trampoline
-    static const size_t TRAMPOLINE_SIZE = 256;
+    static const size_t TRAMPOLINE_SIZE = 32;
 
     if (g_trampoline) {
-        void* branch = g_trampoline->AllocateFromBranchPool(g_pluginHandle, TRAMPOLINE_SIZE);
+        void *branch = g_trampoline->AllocateFromBranchPool(g_pluginHandle, TRAMPOLINE_SIZE);
         if (!branch) {
             _ERROR("couldn't acquire branch trampoline from SKSE. this is fatal. skipping remainder of init process.");
             return false;
@@ -1308,7 +1317,7 @@ bool TryHook()
 
         g_branchTrampoline.SetBase(TRAMPOLINE_SIZE, branch);
 
-        void* local = g_trampoline->AllocateFromLocalPool(g_pluginHandle, TRAMPOLINE_SIZE);
+        void *local = g_trampoline->AllocateFromLocalPool(g_pluginHandle, TRAMPOLINE_SIZE);
         if (!local) {
             _ERROR("couldn't acquire codegen buffer from SKSE. this is fatal. skipping remainder of init process.");
             return false;
@@ -1331,7 +1340,6 @@ bool TryHook()
     PerformHooks();
     return true;
 }
-
 
 extern "C" {
     void OnDataLoaded()
