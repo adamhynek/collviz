@@ -12,6 +12,7 @@
 #include <d3d11shader.h>
 #include <d3dcompiler.h>
 #include <winrt/base.h>
+#include <wrl/client.h>
 
 #include <Physics/Collide/Shape/Convex/Sphere/hkpSphereShape.h>
 #include <Physics/Collide/Shape/Convex/Capsule/hkpCapsuleShape.h>
@@ -25,6 +26,8 @@
 #include "offsets.h"
 #include "utils.h"
 #include "version.h"
+
+using Microsoft::WRL::ComPtr;
 
 
 // SKSE globals
@@ -203,9 +206,8 @@ ID3D11Buffer *g_modelBuffer = nullptr;
 
 struct ShapeBuffers
 {
-    // TODO: We need to free these at some point
-    ID3D11Buffer *vertexBuffer;
-    ID3D11Buffer *indexBuffer;
+    ComPtr<ID3D11Buffer> vertexBuffer;
+    ComPtr<ID3D11Buffer> indexBuffer;
     UINT numIndices;
 };
 
@@ -259,7 +261,7 @@ ShapeBuffers CreateVertexAndIndexBuffers(std::vector<Vertex> &vertices, std::vec
     vertexData.SysMemPitch = 0;
     vertexData.SysMemSlicePitch = 0;
 
-    g_renderGlobals->device->CreateBuffer(&vertexBufferDesc, &vertexData, &buffers.vertexBuffer);
+    g_renderGlobals->device->CreateBuffer(&vertexBufferDesc, &vertexData, buffers.vertexBuffer.GetAddressOf());
 
     D3D11_BUFFER_DESC indexBufferDesc;
     indexBufferDesc.Usage = D3D11_USAGE_DEFAULT;
@@ -274,7 +276,7 @@ ShapeBuffers CreateVertexAndIndexBuffers(std::vector<Vertex> &vertices, std::vec
     indexData.SysMemPitch = 0;
     indexData.SysMemSlicePitch = 0;
 
-    g_renderGlobals->device->CreateBuffer(&indexBufferDesc, &indexData, &buffers.indexBuffer);
+    g_renderGlobals->device->CreateBuffer(&indexBufferDesc, &indexData, buffers.indexBuffer.GetAddressOf());
 
     buffers.numIndices = indices.size();
 
@@ -819,8 +821,6 @@ std::vector<std::tuple<int, int, int>> GenerateTrianglesForConvexHull(const std:
     return tris;
 }
 
-hkArray<hkVector4> g_scratchHkArray{}; // We can't call the destructor of this ourselves, so this is a global array to be used at will and never deallocated.
-
 bool AreVerticesInTheSamePlane(std::vector<Vertex> &vertices)
 {
     if (vertices.size() <= 3) return false;
@@ -922,6 +922,7 @@ std::vector<std::tuple<int, int, int>> TriangulateConvexVertices(std::vector<Ver
 
 std::pair<std::vector<Vertex>, std::vector<WORD>> GetConvexVerticesShapeVertices(hkpConvexVerticesShape *shape)
 {
+    static hkArray<hkVector4> g_scratchHkArray{};
     g_scratchHkArray.clear();
     hkArray<hkVector4> &verts = g_scratchHkArray;
     hkpConvexVerticesShape_getOriginalVertices(shape, verts);
@@ -1121,8 +1122,8 @@ void DrawShape(const bhkRigidBody *rigidBody, const hkpShape *shape, const NiTra
 
     UINT stride = sizeof(Vertex);
     UINT offset = 0;
-    g_renderGlobals->deviceContext->IASetVertexBuffers(0, 1, &it->second.vertexBuffer, &stride, &offset);
-    g_renderGlobals->deviceContext->IASetIndexBuffer(it->second.indexBuffer, DXGI_FORMAT_R16_UINT, 0);
+    g_renderGlobals->deviceContext->IASetVertexBuffers(0, 1, it->second.vertexBuffer.GetAddressOf(), &stride, &offset);
+    g_renderGlobals->deviceContext->IASetIndexBuffer(it->second.indexBuffer.Get(), DXGI_FORMAT_R16_UINT, 0);
 
     { // Model data (object transform)
 
