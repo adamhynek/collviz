@@ -1,5 +1,7 @@
 #pragma once
 
+#include <set>
+
 #include "skse64/NiGeometry.h"
 #include "skse64/GameReferences.h"
 #include "skse64/PapyrusSpell.h"
@@ -27,6 +29,12 @@ inline NiPoint3 lerp(const NiPoint3 &a, const NiPoint3 &b, float t) { return a *
 inline NiPoint3 ForwardVector(const NiMatrix33 &r) { return { r.data[0][1], r.data[1][1], r.data[2][1] }; }
 inline float DotProduct(const NiPoint3 &vec1, const NiPoint3 &vec2) { return vec1.x*vec2.x + vec1.y*vec2.y + vec1.z*vec2.z; }
 inline NiPoint3 VectorNormalized(const NiPoint3 &vec) { float length = VectorLength(vec); return length > 0.0f ? vec / length : NiPoint3(); }
+
+inline void ltrim(std::string &s) { s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch) { return !::isspace(ch); })); }
+inline void rtrim(std::string &s) { s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) { return !::isspace(ch); }).base(), s.end()); }
+inline void trim(std::string &s) { ltrim(s); rtrim(s); }
+std::set<std::string, std::less<>> SplitStringToSet(const std::string &s, char delim);
+std::vector<std::string> SplitString(const std::string &s, char delim);
 
 inline NiPoint3 HkVectorToNiPoint(const hkVector4 &vec) { return { vec.getQuad().m128_f32[0], vec.getQuad().m128_f32[1], vec.getQuad().m128_f32[2] }; }
 inline hkVector4 NiPointToHkVector(const NiPoint3 &pt) { return { pt.x, pt.y, pt.z, 0 }; };

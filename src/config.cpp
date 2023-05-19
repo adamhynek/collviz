@@ -2,6 +2,7 @@
 #include <filesystem>
 
 #include "config.h"
+#include "utils.h"
 
 
 namespace Config {
@@ -79,11 +80,100 @@ namespace Config {
         return true;
     }
 
-    bool ReadColor(const std::string &name, NiColor &vec)
+    bool ReadStringSet(const std::string &name, std::set<std::string, std::less<>> &val)
     {
-        if (!ReadFloat(name + "R", vec.r)) return false;
-        if (!ReadFloat(name + "G", vec.g)) return false;
-        if (!ReadFloat(name + "B", vec.b)) return false;
+        std::string data = GetConfigOption("Settings", name.c_str());
+        if (data.empty()) {
+            _WARNING("Failed to read StringSet config option: %s", name.c_str());
+            return false;
+        }
+
+        val = SplitStringToSet(data, ',');
+        return true;
+    }
+
+    bool ReadIntArray(const std::string &name, std::vector<int> &val)
+    {
+        std::string data = GetConfigOption("Settings", name.c_str());
+        if (data.empty()) {
+            _WARNING("Failed to read int array config option: %s", name.c_str());
+            return false;
+        }
+
+        val.clear(); // first empty the set, since we will be reading into it
+
+        std::vector<std::string> stringList = SplitString(data, ',');
+        for (const std::string &str : stringList) {
+            val.push_back(std::stoi(str));
+        }
+        return true;
+    }
+
+    bool ReadIntSet(const std::string &name, std::unordered_set<int> &val)
+    {
+        std::string data = GetConfigOption("Settings", name.c_str());
+        if (data.empty()) {
+            _WARNING("Failed to read int set config option: %s", name.c_str());
+            return false;
+        }
+
+        val.clear(); // first empty the set, since we will be reading into it
+
+        std::vector<std::string> stringList = SplitString(data, ',');
+        for (const std::string &str : stringList) {
+            val.insert(std::stoi(str));
+        }
+        return true;
+    }
+
+    NiColorA ConvertHexToColor(UInt32 hex)
+    {
+        NiColorA color;
+        color.r = ((hex >> 16) & 0xff) / 255.f;
+        color.g = ((hex >> 8) & 0xff) / 255.f;
+        color.b = (hex & 0xff) / 255.f;
+        color.a = 1.f;
+        return color;
+    }
+
+    bool ReadColor(const std::string &name, NiColorA &color)
+    {
+        std::string data = GetConfigOption("Settings", name.c_str());
+        if (data.empty()) {
+            _WARNING("Failed to read color config option: %s", name.c_str());
+            return false;
+        }
+
+        UInt32 hex = std::stoi(data, nullptr, 16);
+
+        color = ConvertHexToColor(hex);
+        return true;
+    }
+
+    bool ReadLayerColors(const std::string &name, std::unordered_map<int, NiColorA> &colors)
+    {
+        std::string data = GetConfigOption("Settings", name.c_str());
+        if (data.empty()) {
+            _WARNING("Failed to read layer color config option: %s", name.c_str());
+            return false;
+        }
+
+        colors.clear(); // first empty the set, since we will be reading into it
+
+        // Layer colors are stored as a comma-separated list of layer index:color pairs, where the color is the hex value of the color
+        std::vector<std::string> stringList = SplitString(data, ',');
+        for (const std::string &str : stringList) {
+            std::vector<std::string> layerColor = SplitString(str, ':');
+            if (layerColor.size() != 2) {
+                _WARNING("Invalid layer color config option: %s", str.c_str());
+                return false;
+            }
+
+            int layer = std::stoi(layerColor[0]);
+            UInt32 color = std::stoi(layerColor[1], nullptr, 16);
+
+            colors[layer] = ConvertHexToColor(color);
+        }
 
         return true;
     }
@@ -92,7 +182,8 @@ namespace Config {
     {
         if (!ReadInt("logLevel", options.logLevel)) return false;
 
-        if (!ReadFloat("drawDistance", options.drawDistance)) return false;
+        if (!ReadFloat("interiorDrawDistance", options.interiorDrawDistance)) return false;
+        if (!ReadFloat("exteriorDrawDistance", options.exteriorDrawDistance)) return false;
 
         if (!ReadBool("wireframe", options.wireframe)) return false;
 
@@ -107,18 +198,16 @@ namespace Config {
 
         if (!ReadBool("resetOnToggle", options.resetOnToggle)) return false;
 
-        if (!ReadUInt64Hex("drawLayersBitfield", options.drawLayersBitfield)) return false;
         if (!ReadBool("drawActiveIslands", options.drawActiveIslands)) return false;
         if (!ReadBool("drawInactiveIslands", options.drawInactiveIslands)) return false;
         if (!ReadBool("drawFixedIsland", options.drawFixedIsland)) return false;
 
-        NiColor dynamicColor;
-        if (!ReadColor("dynamicColor", dynamicColor)) return false;
-        options.dynamicColor = { dynamicColor.r, dynamicColor.g, dynamicColor.b, 1.f };
+        if (!ReadIntSet("ignoreLayers", options.ignoreLayers)) return false;
 
-        NiColor fixedColor;
-        if (!ReadColor("fixedColor", fixedColor)) return false;
-        options.fixedColor = { fixedColor.r, fixedColor.g, fixedColor.b, 1.f };
+        if (!ReadLayerColors("layerColors", options.layerColors)) return false;
+
+        if (!ReadColor("defaultColor", options.defaultColor)) return false;
+        if (!ReadFloat("fixedObjectDimFactor", options.fixedObjectDimFactor))
 
         return true;
     }

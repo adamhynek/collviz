@@ -1,5 +1,7 @@
 #pragma once
 
+#include <unordered_set>
+
 #include "skse64/NiNodes.h"
 #include "skse64/GameData.h"
 
@@ -8,7 +10,8 @@ namespace Config {
     struct Options {
         int logLevel = IDebugLog::kLevel_Message;
 
-        float drawDistance = 50.f;
+        float interiorDrawDistance = 30.f;
+        float exteriorDrawDistance = 50.f;
 
         bool wireframe = true;
 
@@ -23,13 +26,15 @@ namespace Config {
 
         bool resetOnToggle = true;
 
-        UInt64 drawLayersBitfield = 0xffffffffbfffffff; // everything except the charcontroller layer
         bool drawActiveIslands = true;
         bool drawInactiveIslands = true;
         bool drawFixedIsland = true;
 
-        NiColorA dynamicColor = { 1.f, 1.f, 1.f, 1.f };
-        NiColorA fixedColor = { 0.3f, 0.3f, 0.3f, 1.f };
+        std::unordered_set<int> ignoreLayers{};
+        std::unordered_map<int, NiColorA> layerColors{};
+
+        NiColorA defaultColor = { 1.f, 1.f, 1.f, 1.f };
+        float fixedObjectDimFactor = 0.3f;
     };
     extern Options options; // global object containing options
 

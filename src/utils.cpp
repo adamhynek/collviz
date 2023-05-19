@@ -1,3 +1,5 @@
+#include <sstream>
+
 #include "skse64/GameRTTI.h"
 
 #include "utils.h"
@@ -89,3 +91,32 @@ NiTransform hkTransformToNiTransform(const hkTransform &t, float scale, bool use
     out.scale = scale;
     return out;
 }
+
+std::vector<std::string> SplitString(const std::string &s, char delim)
+{
+    std::vector<std::string> result;
+    std::stringstream ss(s);
+    std::string item;
+
+    while (getline(ss, item, delim)) {
+        trim(item);
+        result.push_back(item);
+    }
+
+    return result;
+}
+
+std::set<std::string, std::less<>> SplitStringToSet(const std::string &s, char delim)
+{
+	std::set<std::string, std::less<>> result;
+	std::stringstream ss(s);
+	std::string item;
+
+	while (getline(ss, item, delim)) {
+		trim(item);
+		result.insert(item);
+	}
+
+	return result;
+}
+

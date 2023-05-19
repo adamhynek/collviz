@@ -1153,7 +1153,7 @@ void DrawRigidBody(const hkpRigidBody *rigidBody, float drawDistance)
     if (filterInfo >> 14 & 1) return; // collision is disabled
 
     UInt32 layer = GetCollisionLayer(rigidBody);
-    if (!((UInt64(1) << layer) & Config::options.drawLayersBitfield)) return;
+    if (Config::options.ignoreLayers.count(layer)) return;
 
     const hkpShape *shape = rigidBody->getCollidable()->getShape();
     if (!shape) return;
@@ -1164,10 +1164,20 @@ void DrawRigidBody(const hkpRigidBody *rigidBody, float drawDistance)
     aabb.expandBy(drawDistance);
     if (!aabb.containsPoint(NiPointToHkVector((*g_thePlayer)->pos * *g_havokWorldScale))) return;
 
-    NiColorA color = Config::options.dynamicColor;
+    NiColorA color = Config::options.defaultColor;
+
+    {
+        auto it = Config::options.layerColors.find(layer);
+        if (it != Config::options.layerColors.end()) {
+            color = it->second;
+        }
+    }
+
     hkpMotion::MotionType motionType = rigidBody->getMotionType();
     if (motionType == hkpMotion::MOTION_FIXED) {
-        color = Config::options.fixedColor;
+        color.r *= Config::options.fixedObjectDimFactor;
+        color.g *= Config::options.fixedObjectDimFactor;
+        color.b *= Config::options.fixedObjectDimFactor;
     }
 
     DrawShape(wrapper, shape, hkTransformToNiTransform(transform), color);
@@ -1186,6 +1196,25 @@ bhkWorld *g_prevWorld = nullptr;
 
 void DrawCollision()
 {
+    PlayerCharacter *player = *g_thePlayer;
+    if (!player->GetNiNode()) return;
+
+    TESObjectCELL *cell = player->parentCell;
+    if (!cell) return;
+
+    bool isInterior = cell->unk040 & 1;
+    float drawDistance = isInterior ? Config::options.interiorDrawDistance : Config::options.exteriorDrawDistance;
+
+    NiPointer<bhkWorld> world = GetHavokWorldFromCell(cell);
+    if (!world) return;
+
+    if (world != g_prevWorld) {
+        // TODO: This doesn't cover if we travel between tamriel exterior and the whiterun city, or fast travelling
+        // TODO: We should also remove entries that have not been used for a while, e.g. if we are outside which is all the same world
+        g_shapeBuffers.clear();
+    }
+    g_prevWorld = world;
+
     g_renderGlobals->deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     g_renderGlobals->deviceContext->RSSetState(g_rasterizerState);
@@ -1208,39 +1237,23 @@ void DrawCollision()
         SetVSConstantBuffer(0, g_cameraBuffer);
     }
 
-    PlayerCharacter *player = *g_thePlayer;
-    if (!player->GetNiNode()) return;
-
-    TESObjectCELL *cell = player->parentCell;
-    if (!cell) return;
-
-    NiPointer<bhkWorld> world = GetHavokWorldFromCell(cell);
-    if (!world) return;
-
-    if (world != g_prevWorld) {
-        // TODO: This doesn't cover if we travel between tamriel exterior and the whiterun city, or fast travelling
-        // TODO: We should also remove entries that have not been used for a while, e.g. if we are outside which is all the same world
-        g_shapeBuffers.clear();
-    }
-    g_prevWorld = world;
-
     {
         BSReadLocker lock(&world->worldLock);
 
         if (Config::options.drawActiveIslands) {
             for (const hkpSimulationIsland *island : world->world->m_activeSimulationIslands) {
-                DrawIsland(island, Config::options.drawDistance);
+                DrawIsland(island, drawDistance);
             }
         }
 
         if (Config::options.drawInactiveIslands) {
             for (const hkpSimulationIsland *island : world->world->m_inactiveSimulationIslands) {
-                DrawIsland(island, Config::options.drawDistance);
+                DrawIsland(island, drawDistance);
             }
         }
 
         if (Config::options.drawFixedIsland) {
-            DrawIsland(world->world->m_fixedIsland, Config::options.drawDistance);
+            DrawIsland(world->world->m_fixedIsland, drawDistance);
         }
     }
 }
