@@ -20,6 +20,7 @@
 #include <Physics/Collide/Shape/Convex/ConvexTransform/hkpConvexTransformShape.h>
 #include <Physics/Collide/Shape/Misc/Transform/hkpTransformShape.h>
 #include <Physics/Collide/Shape/Convex/Triangle/hkpTriangleShape.h>
+#include <Physics/Dynamics/Phantom/hkpAabbPhantom.h>
 
 #include "config.h"
 #include "havok.h"
@@ -215,9 +216,10 @@ struct ShapeIdentifier
 {
     // Why does this class exist?
     // It's because we can't just use shapes to index into the map, as the memory for a shape can get re-used at a later time, which would lead to incorrectly re-using the buffers for the wrong shape.
+    // Using more object addresses to identify the shape makes it less likely to have address collisions.
 
-    const bhkRigidBody *rigidBodyWrapper;
-    const hkpRigidBody *rigidBody;
+    const bhkWorldObject *worldObjectWrapper;
+    const hkpWorldObject *worldObject;
     const bhkShape *shapeWrapper;
     const hkpShape *shape;
 
@@ -225,7 +227,7 @@ struct ShapeIdentifier
     {
         std::size_t operator()(const ShapeIdentifier &k) const
         {
-            return (UInt64)k.rigidBodyWrapper ^ (UInt64)k.rigidBody ^ (UInt64)k.shapeWrapper ^ (UInt64)k.shape;
+            return (UInt64)k.worldObjectWrapper ^ (UInt64)k.worldObject ^ (UInt64)k.shapeWrapper ^ (UInt64)k.shape;
         }
     };
 
@@ -233,7 +235,7 @@ struct ShapeIdentifier
     {
         bool operator()(const ShapeIdentifier &lhs, const ShapeIdentifier &rhs) const
         {
-            return lhs.rigidBodyWrapper == rhs.rigidBodyWrapper && lhs.rigidBody == rhs.rigidBody && lhs.shapeWrapper == rhs.shapeWrapper && lhs.shape == rhs.shape;
+            return lhs.worldObjectWrapper == rhs.worldObjectWrapper && lhs.worldObject == rhs.worldObject && lhs.shapeWrapper == rhs.shapeWrapper && lhs.shape == rhs.shape;
         }
     };
 };
@@ -976,7 +978,7 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetConvexVerticesShapeVertices
     return { vertices, indices };
 }
 
-std::pair<std::vector<Vertex>, std::vector<WORD>> GetBoxVertices(hkVector4 &a_halfExtents, float convexRadius)
+std::pair<std::vector<Vertex>, std::vector<WORD>> GetBoxVertices(hkVector4 &a_halfExtents, float convexRadius, std::optional<NiPoint3> a_center = std::nullopt)
 {
     NiPoint3 halfExtents = HkVectorToNiPoint(a_halfExtents);
 
@@ -995,6 +997,10 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetBoxVertices(hkVector4 &a_ha
         vertex.pos.x *= halfExtents.x * *g_inverseHavokWorldScale;
         vertex.pos.y *= halfExtents.y * *g_inverseHavokWorldScale;
         vertex.pos.z *= halfExtents.z * *g_inverseHavokWorldScale;
+
+        if (a_center) {
+            vertex.pos += *a_center * *g_inverseHavokWorldScale;
+        }
     }
 
     std::vector<std::tuple<int, int, int>> triangles = TriangulateConvexVertices(vertices, convexRadius);
@@ -1015,11 +1021,8 @@ bool IsListShape(const hkpShape *shape)
     return shape->getType() == hkpShapeType::HK_SHAPE_LIST || shape->getType() == hkpShapeType::HK_SHAPE_CONVEX_LIST || shape->getType() == hkpShapeType::HK_SHAPE_MOPP;
 }
 
-void DrawShape(const bhkRigidBody *rigidBody, const hkpShape *shape, const NiTransform &transform, const NiColorA &color)
+void DrawShape(const ShapeIdentifier &shapeIdentifier, const hkpShape *shape, const NiTransform &transform, const NiColorA &color)
 {
-    bhkShape *shapeWrapper = (bhkShape *)shape->m_userData;
-    if (!shapeWrapper) return;
-
     if (IsListShape(shape)) {
         const hkpShapeContainer *container = shape->getContainer();
         if (!container) return;
@@ -1030,7 +1033,7 @@ void DrawShape(const bhkRigidBody *rigidBody, const hkpShape *shape, const NiTra
         while (shapeKey != HK_INVALID_SHAPE_KEY) {
             if (const hkpShape *childShape = container->getChildShape(shapeKey, buffer)) {
                 if (childShape->getType() != hkpShapeType::HK_SHAPE_TRIANGLE) {
-                    DrawShape(rigidBody, childShape, transform, color);
+                    DrawShape(shapeIdentifier, childShape, transform, color);
                 }
             }
             shapeKey = container->getNextKey(shapeKey);
@@ -1043,7 +1046,7 @@ void DrawShape(const bhkRigidBody *rigidBody, const hkpShape *shape, const NiTra
         if (!transformShape) return;
 
         NiTransform childTransform = transform * hkTransformToNiTransform(transformShape->getTransform());
-        DrawShape(rigidBody, transformShape->getChildShape(), childTransform, color);
+        DrawShape(shapeIdentifier, transformShape->getChildShape(), childTransform, color);
 
         return;
     }
@@ -1052,13 +1055,12 @@ void DrawShape(const bhkRigidBody *rigidBody, const hkpShape *shape, const NiTra
         if (!transformShape) return;
 
         NiTransform childTransform = transform * hkTransformToNiTransform(transformShape->getTransform());
-        DrawShape(rigidBody, transformShape->getChildShape(), childTransform, color);
+        DrawShape(shapeIdentifier, transformShape->getChildShape(), childTransform, color);
 
         return;
     }
 
     // If we've already created the vertex and index buffers for this shape, use them. Otherwise, create them.
-    ShapeIdentifier shapeIdentifier{ rigidBody, rigidBody->hkBody, shapeWrapper, shape };
     auto &it = g_shapeBuffers.find(shapeIdentifier);
     if (it == g_shapeBuffers.end()) {
         if (IsListShape(shape)) {
@@ -1152,11 +1154,14 @@ void DrawRigidBody(const hkpRigidBody *rigidBody, float drawDistance)
     UInt32 filterInfo = rigidBody->getCollisionFilterInfo();
     if (filterInfo >> 14 & 1) return; // collision is disabled
 
-    UInt32 layer = GetCollisionLayer(rigidBody);
+    UInt32 layer = GetCollisionLayer(filterInfo);
     if (Config::options.ignoreLayers.count(layer)) return;
 
     const hkpShape *shape = rigidBody->getCollidable()->getShape();
     if (!shape) return;
+
+    bhkShape *shapeWrapper = (bhkShape *)shape->m_userData;
+    if (!shapeWrapper) return;
 
     const hkTransform &transform = rigidBody->getTransform();
 
@@ -1180,7 +1185,98 @@ void DrawRigidBody(const hkpRigidBody *rigidBody, float drawDistance)
         color.b *= Config::options.fixedObjectDimFactor;
     }
 
-    DrawShape(wrapper, shape, hkTransformToNiTransform(transform), color);
+    ShapeIdentifier shapeIdentifier = { wrapper, rigidBody, shapeWrapper, shape };
+    DrawShape(shapeIdentifier, shape, hkTransformToNiTransform(transform), color);
+}
+
+void DrawAabb(const ShapeIdentifier &shapeIdentifier, const hkAabb &aabb, const NiColorA &color)
+{
+    auto &it = g_shapeBuffers.find(shapeIdentifier);
+    if (it == g_shapeBuffers.end()) {
+        // First compute the half extents
+        hkVector4 halfExtents;
+        hkVector4 sub; sub.setSub4(aabb.m_max, aabb.m_min);
+        halfExtents.setMul4({ 0.5f, 0.5f, 0.5f, 0.5f }, sub);
+
+        // Now compute the center
+        hkVector4 center; center.setAdd4(aabb.m_min, halfExtents);
+
+        auto [vertices, indices] = GetBoxVertices(halfExtents, 0.f, HkVectorToNiPoint(center));
+        g_shapeBuffers[shapeIdentifier] = CreateVertexAndIndexBuffers(vertices, indices);
+
+        it = g_shapeBuffers.find(shapeIdentifier);
+    }
+
+    if (it->second.numIndices == 0) return;
+
+    UINT stride = sizeof(Vertex);
+    UINT offset = 0;
+    g_renderGlobals->deviceContext->IASetVertexBuffers(0, 1, it->second.vertexBuffer.GetAddressOf(), &stride, &offset);
+    g_renderGlobals->deviceContext->IASetIndexBuffer(it->second.indexBuffer.Get(), DXGI_FORMAT_R16_UINT, 0);
+
+    { // Model data (object transform)
+
+        // Each eye
+        NiTransform transform = NiTransform(); // identity
+        PerObjectVSData modelData;
+        XMMATRIXFromNiTransform(&modelData.matModel[0], &transform, 0);
+        XMMATRIXFromNiTransform(&modelData.matModel[1], &transform, 1);
+        modelData.color = color;
+
+        D3D11_MAPPED_SUBRESOURCE mappedResource;
+        g_renderGlobals->deviceContext->Map(g_modelBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+        memcpy(mappedResource.pData, &modelData, sizeof(PerObjectVSData));
+        g_renderGlobals->deviceContext->Unmap(g_modelBuffer, 0);
+
+        SetVSConstantBuffer(1, g_modelBuffer);
+    }
+
+    g_renderGlobals->deviceContext->DrawIndexedInstanced(it->second.numIndices, 2, 0, 0, 0);
+}
+
+void DrawPhantom(hkpPhantom *phantom, float drawDistance)
+{
+    bhkWorldObject *wrapper = (bhkWorldObject *)phantom->m_userData;
+    if (!wrapper) return;
+
+    UInt32 filterInfo = phantom->getCollidable()->getCollisionFilterInfo();
+    if (filterInfo >> 14 & 1) return; // collision is disabled
+
+    UInt32 layer = GetCollisionLayer(filterInfo);
+    if (Config::options.ignoreLayers.count(layer)) return;
+
+    hkAabb aabb; phantom->calcAabb(aabb);
+    aabb.expandBy(drawDistance);
+    if (!aabb.containsPoint(NiPointToHkVector((*g_thePlayer)->pos * *g_havokWorldScale))) return;
+
+    NiColorA color = Config::options.phantomColor;
+
+    {
+        auto it = Config::options.layerColors.find(layer);
+        if (it != Config::options.layerColors.end()) {
+            color = it->second;
+        }
+    }
+
+    if (phantom->getType() == hkpPhantomType::HK_PHANTOM_AABB) {
+        hkpAabbPhantom *aabbPhantom = DYNAMIC_CAST(phantom, hkpPhantom, hkpAabbPhantom);
+        if (!aabbPhantom) return;
+
+        ShapeIdentifier shapeIdentifier = { wrapper, phantom, nullptr, nullptr };
+        DrawAabb(shapeIdentifier, aabbPhantom->getAabb(), color);
+    }
+    else if (hkpShapePhantom *shapePhantom = DYNAMIC_CAST(phantom, hkpPhantom, hkpShapePhantom)) {
+        const hkpShape *shape = phantom->getCollidable()->getShape();
+        if (!shape) return;
+
+        bhkShape *shapeWrapper = (bhkShape *)shape->m_userData;
+        if (!shapeWrapper) return;
+
+        const hkTransform &transform = shapePhantom->getTransform();
+
+        ShapeIdentifier shapeIdentifier = { wrapper, phantom, shapeWrapper, shape };
+        DrawShape(shapeIdentifier, shape, hkTransformToNiTransform(transform), color);
+    }
 }
 
 void DrawIsland(const hkpSimulationIsland *island, float drawDistance)
@@ -1254,6 +1350,12 @@ void DrawCollision()
 
         if (Config::options.drawFixedIsland) {
             DrawIsland(world->world->m_fixedIsland, drawDistance);
+        }
+
+        if (Config::options.drawPhantoms) {
+            for (hkpPhantom *phantom : world->world->getPhantoms()) {
+                DrawPhantom(phantom, drawDistance);
+            }
         }
     }
 }

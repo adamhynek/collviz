@@ -29,11 +29,13 @@ namespace Config {
         bool drawActiveIslands = true;
         bool drawInactiveIslands = true;
         bool drawFixedIsland = true;
+        bool drawPhantoms = true;
 
         std::unordered_set<int> ignoreLayers{};
         std::unordered_map<int, NiColorA> layerColors{};
 
         NiColorA defaultColor = { 1.f, 1.f, 1.f, 1.f };
+        NiColorA phantomColor = { 1.f, 1.f, 0.f, 1.f };
         float fixedObjectDimFactor = 0.3f;
     };
     extern Options options; // global object containing options

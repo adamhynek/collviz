@@ -201,13 +201,15 @@ namespace Config {
         if (!ReadBool("drawActiveIslands", options.drawActiveIslands)) return false;
         if (!ReadBool("drawInactiveIslands", options.drawInactiveIslands)) return false;
         if (!ReadBool("drawFixedIsland", options.drawFixedIsland)) return false;
+        if (!ReadBool("drawPhantoms", options.drawPhantoms)) return false;
 
         if (!ReadIntSet("ignoreLayers", options.ignoreLayers)) return false;
 
         if (!ReadLayerColors("layerColors", options.layerColors)) return false;
 
         if (!ReadColor("defaultColor", options.defaultColor)) return false;
-        if (!ReadFloat("fixedObjectDimFactor", options.fixedObjectDimFactor))
+        if (!ReadColor("phantomColor", options.phantomColor)) return false;
+        if (!ReadFloat("fixedObjectDimFactor", options.fixedObjectDimFactor)) return false;
 
         return true;
     }
