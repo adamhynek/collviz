@@ -209,8 +209,15 @@ struct ShapeBuffers
 {
     ComPtr<ID3D11Buffer> vertexBuffer;
     ComPtr<ID3D11Buffer> indexBuffer;
-    UINT numIndices;
+    UINT numIndices = 0;
 };
+
+template <class T>
+inline void hash_combine(std::size_t &seed, const T &v)
+{
+    std::hash<T> hasher;
+    seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+}
 
 struct ShapeIdentifier
 {
@@ -227,7 +234,12 @@ struct ShapeIdentifier
     {
         std::size_t operator()(const ShapeIdentifier &k) const
         {
-            return (UInt64)k.worldObjectWrapper ^ (UInt64)k.worldObject ^ (UInt64)k.shapeWrapper ^ (UInt64)k.shape;
+            std::size_t h = 0;
+            hash_combine(h, (UInt64)k.worldObjectWrapper);
+            hash_combine(h, (UInt64)k.worldObject);
+            hash_combine(h, (UInt64)k.shapeWrapper);
+            hash_combine(h, (UInt64)k.shape);
+            return h;
         }
     };
 
@@ -1051,7 +1063,11 @@ void DrawShape(const ShapeIdentifier &shapeIdentifier, const hkpShape *shape, co
         while (shapeKey != HK_INVALID_SHAPE_KEY) {
             if (const hkpShape *childShape = container->getChildShape(shapeKey, buffer)) {
                 if (childShape->getType() != hkpShapeType::HK_SHAPE_TRIANGLE) {
-                    DrawShape(shapeIdentifier, childShape, transform, color);
+                    ShapeIdentifier childShapeIdentifier = shapeIdentifier;
+                    childShapeIdentifier.shape = childShape;
+                    childShapeIdentifier.shapeWrapper = childShape->m_userData ? (bhkShape *)childShape->m_userData : nullptr;
+
+                    DrawShape(childShapeIdentifier, childShape, transform, color);
                 }
             }
             shapeKey = container->getNextKey(shapeKey);
@@ -1064,8 +1080,12 @@ void DrawShape(const ShapeIdentifier &shapeIdentifier, const hkpShape *shape, co
         if (!transformShape) return;
 
         NiTransform childTransform = transform * hkTransformToNiTransform(transformShape->getTransform());
-        DrawShape(shapeIdentifier, transformShape->getChildShape(), childTransform, color);
 
+        ShapeIdentifier childShapeIdentifier = shapeIdentifier;
+        childShapeIdentifier.shape = transformShape->getChildShape();
+        childShapeIdentifier.shapeWrapper = transformShape->getChildShape()->m_userData ? (bhkShape *)transformShape->getChildShape()->m_userData : nullptr;
+
+        DrawShape(childShapeIdentifier, childShapeIdentifier.shape, childTransform, color);
         return;
     }
     else if (shape->getType() == hkpShapeType::HK_SHAPE_TRANSFORM) {
@@ -1073,8 +1093,12 @@ void DrawShape(const ShapeIdentifier &shapeIdentifier, const hkpShape *shape, co
         if (!transformShape) return;
 
         NiTransform childTransform = transform * hkTransformToNiTransform(transformShape->getTransform());
-        DrawShape(shapeIdentifier, transformShape->getChildShape(), childTransform, color);
 
+        ShapeIdentifier childShapeIdentifier = shapeIdentifier;
+        childShapeIdentifier.shape = transformShape->getChildShape();
+        childShapeIdentifier.shapeWrapper = transformShape->getChildShape()->m_userData ? (bhkShape *)transformShape->getChildShape()->m_userData : nullptr;
+
+        DrawShape(childShapeIdentifier, childShapeIdentifier.shape, childTransform, color);
         return;
     }
 
@@ -1404,6 +1428,7 @@ void DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_Hook(NiCamera *came
     }
     else if (g_wasRefractionDebugLastFrame) {
         _MESSAGE("%d: Draw collision off", *g_currentFrameCounter);
+
         if (Config::options.resetOnToggle) {
             g_shapeBuffers.clear();
         }
