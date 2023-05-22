@@ -263,7 +263,11 @@ ShapeBuffers CreateVertexAndIndexBuffers(std::vector<Vertex> &vertices, std::vec
     vertexData.SysMemPitch = 0;
     vertexData.SysMemSlicePitch = 0;
 
-    g_renderGlobals->device->CreateBuffer(&vertexBufferDesc, &vertexData, buffers.vertexBuffer.GetAddressOf());
+    HRESULT result = g_renderGlobals->device->CreateBuffer(&vertexBufferDesc, &vertexData, buffers.vertexBuffer.GetAddressOf());
+    if (FAILED(result)) {
+        _ERROR("Failed to create vertex buffer");
+        return buffers;
+    }
 
     D3D11_BUFFER_DESC indexBufferDesc;
     indexBufferDesc.Usage = D3D11_USAGE_DEFAULT;
@@ -278,7 +282,11 @@ ShapeBuffers CreateVertexAndIndexBuffers(std::vector<Vertex> &vertices, std::vec
     indexData.SysMemPitch = 0;
     indexData.SysMemSlicePitch = 0;
 
-    g_renderGlobals->device->CreateBuffer(&indexBufferDesc, &indexData, buffers.indexBuffer.GetAddressOf());
+    result = g_renderGlobals->device->CreateBuffer(&indexBufferDesc, &indexData, buffers.indexBuffer.GetAddressOf());
+    if (FAILED(result)) {
+        _ERROR("Failed to create index buffer");
+        return buffers;
+    }
 
     buffers.numIndices = indices.size();
 
@@ -307,7 +315,10 @@ void CreateConstantBuffers()
     cameraBufferDesc.MiscFlags = 0;
     cameraBufferDesc.StructureByteStride = 0;
 
-    g_renderGlobals->device->CreateBuffer(&cameraBufferDesc, nullptr, &g_cameraBuffer);
+    HRESULT result = g_renderGlobals->device->CreateBuffer(&cameraBufferDesc, nullptr, &g_cameraBuffer);
+    if (FAILED(result)) {
+        _ERROR("Failed to create camera buffer");
+    }
 
     // Create model buffer
     D3D11_BUFFER_DESC modelBufferDesc;
@@ -318,7 +329,10 @@ void CreateConstantBuffers()
     modelBufferDesc.MiscFlags = 0;
     modelBufferDesc.StructureByteStride = 0;
 
-    g_renderGlobals->device->CreateBuffer(&modelBufferDesc, nullptr, &g_modelBuffer);
+    result = g_renderGlobals->device->CreateBuffer(&modelBufferDesc, nullptr, &g_modelBuffer);
+    if (FAILED(result)) {
+        _ERROR("Failed to create model buffer");
+    }
 }
 
 ID3D11RasterizerState *g_rasterizerState = nullptr;
@@ -342,7 +356,10 @@ void CreateRasterizerState()
     desc.ScissorEnable = false;
     desc.MultisampleEnable = false;
     desc.AntialiasedLineEnable = false;
-    g_renderGlobals->device->CreateRasterizerState(&desc, &g_rasterizerState);
+    HRESULT result = g_renderGlobals->device->CreateRasterizerState(&desc, &g_rasterizerState);
+    if (FAILED(result)) {
+        _ERROR("Failed to create rasterizer state");
+    }
 }
 
 ID3D11InputLayout *g_inputLayout = nullptr;
@@ -417,7 +434,7 @@ void CreateShaders()
     winrt::com_ptr<ID3DBlob> errorBlob;
     winrt::com_ptr<ID3DBlob> vertexShaderBinary;
 
-    auto result = D3DCompile(
+    HRESULT result = D3DCompile(
         vertexShaderSource,
         strlen(vertexShaderSource),
         nullptr,
@@ -431,15 +448,16 @@ void CreateShaders()
         errorBlob.put()
     );
 
-    if (!SUCCEEDED(result)) {
+    if (FAILED(result)) {
+        _ERROR("Vertex shader failed to compile");
         if (errorBlob) {
             _ERROR(static_cast<LPCSTR>(errorBlob->GetBufferPointer()));
         }
     }
 
-    const auto vertexCode = g_renderGlobals->device->CreateVertexShader(vertexShaderBinary->GetBufferPointer(), vertexShaderBinary->GetBufferSize(), nullptr, &g_vertexShader);
-    if (!SUCCEEDED(vertexCode)) {
-        _ERROR("Vertex shader failed to compile.");
+    result = g_renderGlobals->device->CreateVertexShader(vertexShaderBinary->GetBufferPointer(), vertexShaderBinary->GetBufferSize(), nullptr, &g_vertexShader);
+    if (FAILED(result)) {
+        _ERROR("Failed to create vertex shader");
     }
 
     // Create pixel shader
@@ -460,15 +478,15 @@ void CreateShaders()
         errorBlob.put()
     );
 
-    if (!SUCCEEDED(result)) {
+    if (FAILED(result)) {
         if (errorBlob) {
             _ERROR(static_cast<LPCSTR>(errorBlob->GetBufferPointer()));
         }
     }
 
-    const auto pixelCode = g_renderGlobals->device->CreatePixelShader(pixelShaderBinary->GetBufferPointer(), pixelShaderBinary->GetBufferSize(), nullptr, &g_pixelShader);
-    if (!SUCCEEDED(pixelCode)) {
-        _ERROR("Pixel shader failed to compile.");
+    result = g_renderGlobals->device->CreatePixelShader(pixelShaderBinary->GetBufferPointer(), pixelShaderBinary->GetBufferSize(), nullptr, &g_pixelShader);
+    if (FAILED(result)) {
+        _ERROR("Failed to create pixel shader");
     }
 
     // Create input layout
@@ -476,12 +494,12 @@ void CreateShaders()
         { "POS", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 }
     };
 
-    const auto layoutCode = g_renderGlobals->device->CreateInputLayout(
+    result = g_renderGlobals->device->CreateInputLayout(
         layout.data(), layout.size(),
         vertexShaderBinary->GetBufferPointer(), vertexShaderBinary->GetBufferSize(),
         &g_inputLayout
     );
-    if (!SUCCEEDED(layoutCode)) {
+    if (FAILED(result)) {
         _ERROR("Failed to create input layout");
     }
 }
@@ -521,7 +539,7 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetTriangleVertices(hkpTriangl
 std::pair<std::vector<Vertex>, std::vector<WORD>> GetTriangleListVertices(const hkpShapeContainer *container)
 {
     std::vector<Vertex> vertices{};
-    std::vector<WORD> indices = {};
+    std::vector<WORD> indices{};
 
     hkpShapeBuffer buffer{};
 
@@ -1165,9 +1183,11 @@ void DrawRigidBody(const hkpRigidBody *rigidBody, float drawDistance)
 
     const hkTransform &transform = rigidBody->getTransform();
 
-    hkAabb aabb; shape->getAabb(transform, 0.001f, aabb);
-    aabb.expandBy(drawDistance);
-    if (!aabb.containsPoint(NiPointToHkVector((*g_thePlayer)->pos * *g_havokWorldScale))) return;
+    {
+        hkAabb aabb; shape->getAabb(transform, 0.001f, aabb);
+        aabb.expandBy(drawDistance);
+        if (!aabb.containsPoint(NiPointToHkVector((*g_thePlayer)->pos * *g_havokWorldScale))) return;
+    }
 
     NiColorA color = Config::options.defaultColor;
 
@@ -1245,18 +1265,13 @@ void DrawPhantom(hkpPhantom *phantom, float drawDistance)
     UInt32 layer = GetCollisionLayer(filterInfo);
     if (Config::options.ignoreLayers.count(layer)) return;
 
-    hkAabb aabb; phantom->calcAabb(aabb);
-    aabb.expandBy(drawDistance);
-    if (!aabb.containsPoint(NiPointToHkVector((*g_thePlayer)->pos * *g_havokWorldScale))) return;
+    {
+        hkAabb aabb; phantom->calcAabb(aabb);
+        aabb.expandBy(drawDistance);
+        if (!aabb.containsPoint(NiPointToHkVector((*g_thePlayer)->pos * *g_havokWorldScale))) return;
+    }
 
     NiColorA color = Config::options.phantomColor;
-
-    {
-        auto it = Config::options.layerColors.find(layer);
-        if (it != Config::options.layerColors.end()) {
-            color = it->second;
-        }
-    }
 
     if (phantom->getType() == hkpPhantomType::HK_PHANTOM_AABB) {
         hkpAabbPhantom *aabbPhantom = DYNAMIC_CAST(phantom, hkpPhantom, hkpAabbPhantom);
