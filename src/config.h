@@ -24,6 +24,8 @@ namespace Config {
         float dedupConvexVerticesThresholdCleanup = 1.f;
         bool duplicatePlanarShapeVertices = true;
 
+        float constraintPivotSphereRadius = 0.03f;
+
         bool resetOnToggle = true;
 
         bool drawActiveIslands = true;

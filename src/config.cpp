@@ -196,6 +196,8 @@ namespace Config {
         if (!ReadFloat("dedupConvexVerticesThresholdCleanup", options.dedupConvexVerticesThresholdCleanup)) return false;
         if (!ReadBool("duplicatePlanarShapeVertices", options.duplicatePlanarShapeVertices)) return false;
 
+        if (!ReadFloat("constraintPivotSphereRadius", options.constraintPivotSphereRadius)) return false;
+
         if (!ReadBool("resetOnToggle", options.resetOnToggle)) return false;
 
         if (!ReadBool("drawActiveIslands", options.drawActiveIslands)) return false;

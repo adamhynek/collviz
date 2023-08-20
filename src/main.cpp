@@ -21,6 +21,7 @@
 #include <Physics/Collide/Shape/Misc/Transform/hkpTransformShape.h>
 #include <Physics/Collide/Shape/Convex/Triangle/hkpTriangleShape.h>
 #include <Physics/Dynamics/Phantom/hkpAabbPhantom.h>
+#include <Physics/Dynamics/Constraint/Bilateral/Ragdoll/hkpRagdollConstraintData.h>
 
 #include "config.h"
 #include "havok.h"
@@ -1188,6 +1189,50 @@ void DrawShape(const ShapeIdentifier &shapeIdentifier, const hkpShape *shape, co
     g_renderGlobals->deviceContext->DrawIndexedInstanced(it->second.numIndices, 2, 0, 0, 0);
 }
 
+ShapeBuffers g_pivotSphereBuffers;
+
+void DrawConstraint(hkpConstraintInstance *constraint)
+{
+    hkpConstraintData *constraintData = constraint->m_data;
+    if (!constraintData) return;
+
+    if (constraintData->getType() == hkpConstraintData::ConstraintType::CONSTRAINT_TYPE_RAGDOLL) {
+        hkpRagdollConstraintData *ragdollConstraintData = DYNAMIC_CAST(constraintData, hkpConstraintData, hkpRagdollConstraintData);
+        if (!ragdollConstraintData) return;
+
+        NiTransform pivotABodySpace = hkTransformToNiTransform(ragdollConstraintData->m_atoms.m_transforms.m_transformA);
+        hkpEntity *entityA = constraint->getEntityA();
+        hkpRigidBody *rigidBodyA = DYNAMIC_CAST(entityA, hkpEntity, hkpRigidBody);
+        NiTransform entityATransform = hkTransformToNiTransform(rigidBodyA->getTransform());
+        NiTransform transform = entityATransform * pivotABodySpace;
+
+        UINT stride = sizeof(Vertex);
+        UINT offset = 0;
+        g_renderGlobals->deviceContext->IASetVertexBuffers(0, 1, g_pivotSphereBuffers.vertexBuffer.GetAddressOf(), &stride, &offset);
+        g_renderGlobals->deviceContext->IASetIndexBuffer(g_pivotSphereBuffers.indexBuffer.Get(), DXGI_FORMAT_R16_UINT, 0);
+
+        NiColorA color = { 0.f, 0.f, 1.f, 1.f };
+
+        { // Model data (object transform)
+
+            // Each eye
+            PerObjectVSData modelData;
+            XMMATRIXFromNiTransform(&modelData.matModel[0], &transform, 0);
+            XMMATRIXFromNiTransform(&modelData.matModel[1], &transform, 1);
+            modelData.color = color;
+
+            D3D11_MAPPED_SUBRESOURCE mappedResource;
+            g_renderGlobals->deviceContext->Map(g_modelBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+            memcpy(mappedResource.pData, &modelData, sizeof(PerObjectVSData));
+            g_renderGlobals->deviceContext->Unmap(g_modelBuffer, 0);
+
+            SetVSConstantBuffer(1, g_modelBuffer);
+        }
+
+        g_renderGlobals->deviceContext->DrawIndexedInstanced(g_pivotSphereBuffers.numIndices, 2, 0, 0, 0);
+    }
+}
+
 void DrawRigidBody(const hkpRigidBody *rigidBody, float drawDistance)
 {
     bhkRigidBody *wrapper = (bhkRigidBody *)rigidBody->m_userData;
@@ -1231,6 +1276,10 @@ void DrawRigidBody(const hkpRigidBody *rigidBody, float drawDistance)
 
     ShapeIdentifier shapeIdentifier = { wrapper, rigidBody, shapeWrapper, shape };
     DrawShape(shapeIdentifier, shape, hkTransformToNiTransform(transform), color);
+
+    for (hkpConstraintInstance *constraint : rigidBody->getConstraintSlaves()) {
+        DrawConstraint(constraint);
+    }
 }
 
 void DrawAabb(const ShapeIdentifier &shapeIdentifier, const hkAabb &aabb, const NiColorA &color)
@@ -1420,6 +1469,9 @@ void DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_Hook(NiCamera *came
             CreateShaders();
             CreateConstantBuffers();
             CreateRasterizerState();
+
+            auto [vertices, indices] = GetSphereVertices(Config::options.constraintPivotSphereRadius);
+            g_pivotSphereBuffers = CreateVertexAndIndexBuffers(vertices, indices);
 
             g_drawCollisionInitialized = true;
         }
