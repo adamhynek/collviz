@@ -205,6 +205,7 @@ namespace Config {
         if (!ReadBool("drawFixedIsland", options.drawFixedIsland)) return false;
         if (!ReadBool("drawPhantoms", options.drawPhantoms)) return false;
         if (!ReadBool("drawConstraints", options.drawConstraints)) return false;
+        if (!ReadBool("drawPlayerCharacterController", options.drawPlayerCharacterController)) return false;
 
         if (!ReadIntSet("ignoreLayers", options.ignoreLayers)) return false;
 
@@ -212,6 +213,7 @@ namespace Config {
 
         if (!ReadColor("defaultColor", options.defaultColor)) return false;
         if (!ReadColor("phantomColor", options.phantomColor)) return false;
+        if (!ReadColor("proxyCharControllerColor", options.proxyCharControllerColor)) return false;
         if (!ReadColor("ragdollConstraintColor", options.ragdollConstraintColor)) return false;
         if (!ReadColor("hingeConstraintColor", options.hingeConstraintColor)) return false;
         if (!ReadFloat("fixedObjectDimFactor", options.fixedObjectDimFactor)) return false;

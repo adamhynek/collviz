@@ -33,12 +33,14 @@ namespace Config {
         bool drawFixedIsland = true;
         bool drawPhantoms = true;
         bool drawConstraints = true;
+        bool drawPlayerCharacterController = true;
 
         std::unordered_set<int> ignoreLayers{};
         std::unordered_map<int, NiColorA> layerColors{};
 
         NiColorA defaultColor = { 1.f, 1.f, 1.f, 1.f };
         NiColorA phantomColor = { 1.f, 1.f, 0.f, 1.f };
+        NiColorA proxyCharControllerColor = { 1.f, 0.f, 0.f, 1.f };
         NiColorA ragdollConstraintColor = { 0.f, 0.f, 1.f, 1.f };
         NiColorA hingeConstraintColor = { 0.f, 0.f, 1.f, 1.f };
         float fixedObjectDimFactor = 0.3f;

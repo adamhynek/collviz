@@ -23,6 +23,7 @@
 #include <Physics/Dynamics/Phantom/hkpAabbPhantom.h>
 #include <Physics/Dynamics/Constraint/Bilateral/Ragdoll/hkpRagdollConstraintData.h>
 #include <Physics/Dynamics/Constraint/Bilateral/LimitedHinge/hkpLimitedHingeConstraintData.h>
+#include <Physics/Collide/Shape/Compound/Collection/List/hkpListShape.h>
 
 #include "config.h"
 #include "havok.h"
@@ -227,10 +228,10 @@ struct ShapeIdentifier
     // It's because we can't just use shapes to index into the map, as the memory for a shape can get re-used at a later time, which would lead to incorrectly re-using the buffers for the wrong shape.
     // Using more object addresses to identify the shape makes it less likely to have address collisions.
 
-    const bhkWorldObject *worldObjectWrapper;
-    const hkpWorldObject *worldObject;
-    const bhkShape *shapeWrapper;
-    const hkpShape *shape;
+    const void *worldObjectWrapper;
+    const void *worldObject;
+    const void *shapeWrapper;
+    const void *shape;
 
     struct Hash
     {
@@ -1063,8 +1064,7 @@ void DrawShape(const ShapeIdentifier &shapeIdentifier, const hkpShape *shape, co
 
         hkpShapeBuffer buffer{};
 
-        hkpShapeKey shapeKey = container->getFirstKey();
-        while (shapeKey != HK_INVALID_SHAPE_KEY) {
+        for (hkpShapeKey shapeKey = container->getFirstKey(); shapeKey != HK_INVALID_SHAPE_KEY; shapeKey = container->getNextKey(shapeKey)) {
             if (const hkpShape *childShape = container->getChildShape(shapeKey, buffer)) {
                 if (childShape->getType() != hkpShapeType::HK_SHAPE_TRIANGLE) {
                     ShapeIdentifier childShapeIdentifier = shapeIdentifier;
@@ -1074,7 +1074,6 @@ void DrawShape(const ShapeIdentifier &shapeIdentifier, const hkpShape *shape, co
                     DrawShape(childShapeIdentifier, childShape, transform, color);
                 }
             }
-            shapeKey = container->getNextKey(shapeKey);
         }
 
         // Don't return early here, as these shape collections may have their triangle child shapes handled later
@@ -1085,11 +1084,12 @@ void DrawShape(const ShapeIdentifier &shapeIdentifier, const hkpShape *shape, co
 
         NiTransform childTransform = transform * hkTransformToNiTransform(transformShape->getTransform());
 
+        const hkpShape *childShape = transformShape->getChildShape();
         ShapeIdentifier childShapeIdentifier = shapeIdentifier;
-        childShapeIdentifier.shape = transformShape->getChildShape();
-        childShapeIdentifier.shapeWrapper = transformShape->getChildShape()->m_userData ? (bhkShape *)transformShape->getChildShape()->m_userData : nullptr;
+        childShapeIdentifier.shape = childShape;
+        childShapeIdentifier.shapeWrapper = childShape->m_userData ? (bhkShape *)transformShape->getChildShape()->m_userData : nullptr;
 
-        DrawShape(childShapeIdentifier, childShapeIdentifier.shape, childTransform, color);
+        DrawShape(childShapeIdentifier, childShape, childTransform, color);
         return;
     }
     else if (shape->getType() == hkpShapeType::HK_SHAPE_TRANSFORM) {
@@ -1098,11 +1098,12 @@ void DrawShape(const ShapeIdentifier &shapeIdentifier, const hkpShape *shape, co
 
         NiTransform childTransform = transform * hkTransformToNiTransform(transformShape->getTransform());
 
+        const hkpShape *childShape = transformShape->getChildShape();
         ShapeIdentifier childShapeIdentifier = shapeIdentifier;
-        childShapeIdentifier.shape = transformShape->getChildShape();
+        childShapeIdentifier.shape = childShape;
         childShapeIdentifier.shapeWrapper = transformShape->getChildShape()->m_userData ? (bhkShape *)transformShape->getChildShape()->m_userData : nullptr;
 
-        DrawShape(childShapeIdentifier, childShapeIdentifier.shape, childTransform, color);
+        DrawShape(childShapeIdentifier, childShape, childTransform, color);
         return;
     }
 
@@ -1403,6 +1404,42 @@ void DrawIsland(const hkpSimulationIsland *island, float drawDistance)
 
 bhkWorld *g_prevWorld = nullptr;
 
+
+NiPointer<bhkCharacterController> GetCharacterController(Actor *actor)
+{
+    ActorProcessManager *process = actor->processManager;
+    if (!process) return nullptr;
+
+    MiddleProcess *middleProcess = process->middleProcess;
+    if (!middleProcess) return nullptr;
+
+    return *((NiPointer<bhkCharacterController> *) & middleProcess->unk250);
+}
+
+NiPointer<bhkCharProxyController> GetCharProxyController(Actor *actor)
+{
+    NiPointer<bhkCharacterController> controller = GetCharacterController(actor);
+    if (!controller) return nullptr;
+
+    return DYNAMIC_CAST(controller, bhkCharacterController, bhkCharProxyController);
+}
+
+void DrawProxyController(Actor *actor)
+{
+    NiPointer<bhkCharProxyController> controller = GetCharProxyController(actor);
+    if (!controller) return;
+
+    RE::hkRefPtr<hkpCharacterProxy> proxy = controller->proxy.characterProxy;
+    if (!proxy) return;
+
+    const hkpShape *shape = proxy->m_shapePhantom->m_collidable.m_shape;
+
+    NiTransform transform = hkTransformToNiTransform(proxy->m_shapePhantom->getTransform());
+    ShapeIdentifier shapeIdentifier = { controller, proxy, (void *)shape->m_userData, shape };
+
+    DrawShape(shapeIdentifier, shape, transform, Config::options.proxyCharControllerColor);
+}
+
 void DrawCollision()
 {
     PlayerCharacter *player = *g_thePlayer;
@@ -1469,6 +1506,10 @@ void DrawCollision()
             for (hkpPhantom *phantom : world->world->getPhantoms()) {
                 DrawPhantom(phantom, drawDistance);
             }
+        }
+
+        if (Config::options.drawPlayerCharacterController) {
+            DrawProxyController(*g_thePlayer);
         }
     }
 }
