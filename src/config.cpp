@@ -197,6 +197,7 @@ namespace Config {
         if (!ReadBool("duplicatePlanarShapeVertices", options.duplicatePlanarShapeVertices)) return false;
 
         if (!ReadFloat("constraintPivotSphereRadius", options.constraintPivotSphereRadius)) return false;
+        if (!ReadFloat("centerOfMassSphereRadius", options.centerOfMassSphereRadius)) return false;
 
         if (!ReadBool("resetOnToggle", options.resetOnToggle)) return false;
 
@@ -206,6 +207,7 @@ namespace Config {
         if (!ReadBool("drawPhantoms", options.drawPhantoms)) return false;
         if (!ReadBool("drawConstraints", options.drawConstraints)) return false;
         if (!ReadBool("drawPlayerCharacterController", options.drawPlayerCharacterController)) return false;
+        if (!ReadBool("drawCenterOfMass", options.drawCenterOfMass)) return false;
 
         if (!ReadIntSet("ignoreLayers", options.ignoreLayers)) return false;
 
@@ -216,6 +218,7 @@ namespace Config {
         if (!ReadColor("proxyCharControllerColor", options.proxyCharControllerColor)) return false;
         if (!ReadColor("ragdollConstraintColor", options.ragdollConstraintColor)) return false;
         if (!ReadColor("hingeConstraintColor", options.hingeConstraintColor)) return false;
+        if (!ReadColor("centerOfMassColor", options.centerOfMassColor)) return false;
         if (!ReadFloat("fixedObjectDimFactor", options.fixedObjectDimFactor)) return false;
 
         return true;

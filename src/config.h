@@ -25,6 +25,7 @@ namespace Config {
         bool duplicatePlanarShapeVertices = true;
 
         float constraintPivotSphereRadius = 0.03f;
+        float centerOfMassSphereRadius = 0.03f;
 
         bool resetOnToggle = true;
 
@@ -34,6 +35,7 @@ namespace Config {
         bool drawPhantoms = true;
         bool drawConstraints = true;
         bool drawPlayerCharacterController = true;
+        bool drawCenterOfMass = true;
 
         std::unordered_set<int> ignoreLayers{};
         std::unordered_map<int, NiColorA> layerColors{};
@@ -43,6 +45,7 @@ namespace Config {
         NiColorA proxyCharControllerColor = { 1.f, 0.f, 0.f, 1.f };
         NiColorA ragdollConstraintColor = { 0.f, 0.f, 1.f, 1.f };
         NiColorA hingeConstraintColor = { 0.f, 0.f, 1.f, 1.f };
+        NiColorA centerOfMassColor = { 0.5f, 0.5f, 0.5f, 1.f };
         float fixedObjectDimFactor = 0.3f;
     };
     extern Options options; // global object containing options

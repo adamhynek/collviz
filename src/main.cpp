@@ -1193,10 +1193,36 @@ void DrawShape(const ShapeIdentifier &shapeIdentifier, const hkpShape *shape, co
     g_renderGlobals->deviceContext->DrawIndexedInstanced(it->second.numIndices, 2, 0, 0, 0);
 }
 
-ShapeBuffers g_pivotSphereBuffers;
+ShapeBuffers g_sphereBuffers;
 
 bool CanDrawConstraint(hkpConstraintData *constraintData) {
     return constraintData->getType() == hkpConstraintData::ConstraintType::CONSTRAINT_TYPE_RAGDOLL || constraintData->getType() == hkpConstraintData::ConstraintType::CONSTRAINT_TYPE_LIMITEDHINGE;
+}
+
+void DrawSphere(const NiTransform &transform, const NiColorA &color)
+{
+    UINT stride = sizeof(Vertex);
+    UINT offset = 0;
+    g_renderGlobals->deviceContext->IASetVertexBuffers(0, 1, g_sphereBuffers.vertexBuffer.GetAddressOf(), &stride, &offset);
+    g_renderGlobals->deviceContext->IASetIndexBuffer(g_sphereBuffers.indexBuffer.Get(), DXGI_FORMAT_R16_UINT, 0);
+
+    { // Model data (object transform)
+
+        // Each eye
+        PerObjectVSData modelData;
+        XMMATRIXFromNiTransform(&modelData.matModel[0], &transform, 0);
+        XMMATRIXFromNiTransform(&modelData.matModel[1], &transform, 1);
+        modelData.color = color;
+
+        D3D11_MAPPED_SUBRESOURCE mappedResource;
+        g_renderGlobals->deviceContext->Map(g_modelBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+        memcpy(mappedResource.pData, &modelData, sizeof(PerObjectVSData));
+        g_renderGlobals->deviceContext->Unmap(g_modelBuffer, 0);
+
+        SetVSConstantBuffer(1, g_modelBuffer);
+    }
+
+    g_renderGlobals->deviceContext->DrawIndexedInstanced(g_sphereBuffers.numIndices, 2, 0, 0, 0);
 }
 
 void DrawConstraint(hkpConstraintInstance *constraint)
@@ -1232,32 +1258,12 @@ void DrawConstraint(hkpConstraintInstance *constraint)
         color = Config::options.hingeConstraintColor;
     }
 
-    UINT stride = sizeof(Vertex);
-    UINT offset = 0;
-    g_renderGlobals->deviceContext->IASetVertexBuffers(0, 1, g_pivotSphereBuffers.vertexBuffer.GetAddressOf(), &stride, &offset);
-    g_renderGlobals->deviceContext->IASetIndexBuffer(g_pivotSphereBuffers.indexBuffer.Get(), DXGI_FORMAT_R16_UINT, 0);
+    transform.scale = Config::options.constraintPivotSphereRadius;
 
-    { // Model data (object transform)
-
-        // Each eye
-        PerObjectVSData modelData;
-        XMMATRIXFromNiTransform(&modelData.matModel[0], &transform, 0);
-        XMMATRIXFromNiTransform(&modelData.matModel[1], &transform, 1);
-        modelData.color = color;
-
-        D3D11_MAPPED_SUBRESOURCE mappedResource;
-        g_renderGlobals->deviceContext->Map(g_modelBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
-        memcpy(mappedResource.pData, &modelData, sizeof(PerObjectVSData));
-        g_renderGlobals->deviceContext->Unmap(g_modelBuffer, 0);
-
-        SetVSConstantBuffer(1, g_modelBuffer);
-    }
-
-    g_renderGlobals->deviceContext->DrawIndexedInstanced(g_pivotSphereBuffers.numIndices, 2, 0, 0, 0);
-
+    DrawSphere(transform, color);
 }
 
-void DrawRigidBody(const hkpRigidBody *rigidBody, float drawDistance)
+void DrawRigidBody(const hkpRigidBody *rigidBody, float drawDistance, bool isFixed)
 {
     bhkRigidBody *wrapper = (bhkRigidBody *)rigidBody->m_userData;
     if (!wrapper) return;
@@ -1300,6 +1306,15 @@ void DrawRigidBody(const hkpRigidBody *rigidBody, float drawDistance)
 
     ShapeIdentifier shapeIdentifier = { wrapper, rigidBody, shapeWrapper, shape };
     DrawShape(shapeIdentifier, shape, hkTransformToNiTransform(transform), color);
+
+    if (Config::options.drawCenterOfMass && !isFixed) {
+        NiPoint3 centerOfMass = HkVectorToNiPoint(rigidBody->getCenterOfMassInWorld()) * *g_inverseHavokWorldScale;
+        NiTransform transform{};
+        transform.pos = centerOfMass;
+        transform.scale = Config::options.centerOfMassSphereRadius;
+
+        DrawSphere(transform, Config::options.centerOfMassColor);
+    }
 
     if (Config::options.drawConstraints) {
         for (hkpConstraintInstance *constraint : rigidBody->getConstraintSlaves()) {
@@ -1393,11 +1408,11 @@ void DrawPhantom(hkpPhantom *phantom, float drawDistance)
     }
 }
 
-void DrawIsland(const hkpSimulationIsland *island, float drawDistance)
+void DrawIsland(const hkpSimulationIsland *island, float drawDistance, bool isFixed)
 {
     for (hkpEntity *entity : island->getEntities()) {
         if (hkpRigidBody *rigidBody = DYNAMIC_CAST(entity, hkpEntity, hkpRigidBody)) {
-            DrawRigidBody(rigidBody, drawDistance);
+            DrawRigidBody(rigidBody, drawDistance, isFixed);
         }
     }
 }
@@ -1488,18 +1503,18 @@ void DrawCollision()
 
         if (Config::options.drawActiveIslands) {
             for (const hkpSimulationIsland *island : world->world->m_activeSimulationIslands) {
-                DrawIsland(island, drawDistance);
+                DrawIsland(island, drawDistance, false);
             }
         }
 
         if (Config::options.drawInactiveIslands) {
             for (const hkpSimulationIsland *island : world->world->m_inactiveSimulationIslands) {
-                DrawIsland(island, drawDistance);
+                DrawIsland(island, drawDistance, false);
             }
         }
 
         if (Config::options.drawFixedIsland) {
-            DrawIsland(world->world->m_fixedIsland, drawDistance);
+            DrawIsland(world->world->m_fixedIsland, drawDistance, true);
         }
 
         if (Config::options.drawPhantoms) {
@@ -1514,8 +1529,8 @@ void DrawCollision()
     }
 }
 
-bool g_drawCollisionInitialized = false;
-bool g_wasRefractionDebugLastFrame = false;
+bool g_drawInitialized = false;
+bool g_wasDrawingLastFrame = false;
 
 auto DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_HookLoc = RelocPtr<_GetNodeFromCollidable>(0x1323E3E);
 _NiCamera_FinishAccumulatingPostResolveDepth DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_Original = 0;
@@ -1526,25 +1541,25 @@ void DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_Hook(NiCamera *came
     if (refractionDebug) {
         // Use ToggleRefractionDebug (unused console command) to toggle our collision visualizer
 
-        if (!g_wasRefractionDebugLastFrame) {
+        if (!g_wasDrawingLastFrame) {
             _MESSAGE("%d: Draw collision on", *g_currentFrameCounter);
             Config::ReloadIfModified();
         }
 
-        if (!g_drawCollisionInitialized) {
+        if (!g_drawInitialized) {
             CreateShaders();
             CreateConstantBuffers();
             CreateRasterizerState();
 
-            auto [vertices, indices] = GetSphereVertices(Config::options.constraintPivotSphereRadius);
-            g_pivotSphereBuffers = CreateVertexAndIndexBuffers(vertices, indices);
+            auto [vertices, indices] = GetSphereVertices(1.f);
+            g_sphereBuffers = CreateVertexAndIndexBuffers(vertices, indices);
 
-            g_drawCollisionInitialized = true;
+            g_drawInitialized = true;
         }
 
         DrawCollision();
     }
-    else if (g_wasRefractionDebugLastFrame) {
+    else if (g_wasDrawingLastFrame) {
         _MESSAGE("%d: Draw collision off", *g_currentFrameCounter);
 
         if (Config::options.resetOnToggle) {
@@ -1552,7 +1567,7 @@ void DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_Hook(NiCamera *came
         }
     }
 
-    g_wasRefractionDebugLastFrame = refractionDebug;
+    g_wasDrawingLastFrame = refractionDebug;
 
     DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_Original(camera, shaderAccumulator, flags);
 }
