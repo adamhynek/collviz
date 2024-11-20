@@ -186,6 +186,7 @@ namespace Config {
         if (!ReadFloat("exteriorDrawDistance", options.exteriorDrawDistance)) return false;
 
         if (!ReadBool("wireframe", options.wireframe)) return false;
+        if (!ReadBool("drawAABBs", options.drawAABBs)) return false;
 
         if (!ReadInt("numSphereSegments", options.numSphereSegments)) return false;
         if (!ReadInt("numCapsuleSegments", options.numCapsuleSegments)) return false;

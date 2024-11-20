@@ -14,6 +14,7 @@ namespace Config {
         float exteriorDrawDistance = 50.f;
 
         bool wireframe = true;
+        bool drawAABBs = false;
 
         int numSphereSegments = 12;
         int numCapsuleSegments = 12;

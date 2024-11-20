@@ -1013,10 +1013,8 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetConvexVerticesShapeVertices
     return { vertices, indices };
 }
 
-std::pair<std::vector<Vertex>, std::vector<WORD>> GetBoxVertices(hkVector4 &a_halfExtents, float convexRadius, std::optional<NiPoint3> a_center = std::nullopt)
+std::pair<std::vector<Vertex>, std::vector<WORD>> GetBoxVertices(const NiPoint3 &a_halfExtents, float convexRadius, std::optional<NiPoint3> a_center = std::nullopt)
 {
-    NiPoint3 halfExtents = HkVectorToNiPoint(a_halfExtents);
-
     std::vector<Vertex> vertices = {
             {{-1.f, -1.f, -1.f}},
             {{-1.f, -1.f,  1.f}},
@@ -1029,9 +1027,9 @@ std::pair<std::vector<Vertex>, std::vector<WORD>> GetBoxVertices(hkVector4 &a_ha
     };
 
     for (Vertex &vertex : vertices) {
-        vertex.pos.x *= halfExtents.x * *g_inverseHavokWorldScale;
-        vertex.pos.y *= halfExtents.y * *g_inverseHavokWorldScale;
-        vertex.pos.z *= halfExtents.z * *g_inverseHavokWorldScale;
+        vertex.pos.x *= a_halfExtents.x * *g_inverseHavokWorldScale;
+        vertex.pos.y *= a_halfExtents.y * *g_inverseHavokWorldScale;
+        vertex.pos.z *= a_halfExtents.z * *g_inverseHavokWorldScale;
 
         if (a_center) {
             vertex.pos += *a_center * *g_inverseHavokWorldScale;
@@ -1128,7 +1126,7 @@ void DrawShape(const ShapeIdentifier &shapeIdentifier, const hkpShape *shape, co
 
             hkVector4 halfExtents = boxShape->getHalfExtents();
             float radius = boxShape->getRadius();
-            auto [vertices, indices] = GetBoxVertices(halfExtents, radius);
+            auto [vertices, indices] = GetBoxVertices(HkVectorToNiPoint(halfExtents), radius);
             g_shapeBuffers[shapeIdentifier] = CreateVertexAndIndexBuffers(vertices, indices);
         }
         else if (shape->getType() == hkpShapeType::HK_SHAPE_SPHERE) {
@@ -1194,6 +1192,7 @@ void DrawShape(const ShapeIdentifier &shapeIdentifier, const hkpShape *shape, co
 }
 
 ShapeBuffers g_sphereBuffers;
+ShapeBuffers g_boxBuffers;
 
 bool CanDrawConstraint(hkpConstraintData *constraintData) {
     return constraintData->getType() == hkpConstraintData::ConstraintType::CONSTRAINT_TYPE_RAGDOLL || constraintData->getType() == hkpConstraintData::ConstraintType::CONSTRAINT_TYPE_LIMITEDHINGE;
@@ -1263,6 +1262,46 @@ void DrawConstraint(hkpConstraintInstance *constraint)
     DrawSphere(transform, color);
 }
 
+void DrawAabb(const ShapeIdentifier &shapeIdentifier, const hkAabb &aabb, const NiColorA &color)
+{
+    // First compute the half extents
+    hkVector4 halfExtents;
+    hkVector4 sub; sub.setSub4(aabb.m_max, aabb.m_min);
+    halfExtents.setMul4({ 0.5f, 0.5f, 0.5f, 0.5f }, sub);
+
+    // Now compute the center
+    hkVector4 center; center.setAdd4(aabb.m_min, halfExtents);
+
+    NiTransform transform = NiTransform(); // identity
+    transform.pos = HkVectorToNiPoint(center) * *g_inverseHavokWorldScale;
+    transform.rot.data[0][0] = halfExtents(0) * *g_inverseHavokWorldScale;
+    transform.rot.data[1][1] = halfExtents(1) * *g_inverseHavokWorldScale;
+    transform.rot.data[2][2] = halfExtents(2) * *g_inverseHavokWorldScale;
+
+    UINT stride = sizeof(Vertex);
+    UINT offset = 0;
+    g_renderGlobals->deviceContext->IASetVertexBuffers(0, 1, g_boxBuffers.vertexBuffer.GetAddressOf(), &stride, &offset);
+    g_renderGlobals->deviceContext->IASetIndexBuffer(g_boxBuffers.indexBuffer.Get(), DXGI_FORMAT_R16_UINT, 0);
+
+    { // Model data (object transform)
+
+        // Each eye
+        PerObjectVSData modelData;
+        XMMATRIXFromNiTransform(&modelData.matModel[0], &transform, 0);
+        XMMATRIXFromNiTransform(&modelData.matModel[1], &transform, 1);
+        modelData.color = color;
+
+        D3D11_MAPPED_SUBRESOURCE mappedResource;
+        g_renderGlobals->deviceContext->Map(g_modelBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+        memcpy(mappedResource.pData, &modelData, sizeof(PerObjectVSData));
+        g_renderGlobals->deviceContext->Unmap(g_modelBuffer, 0);
+
+        SetVSConstantBuffer(1, g_modelBuffer);
+    }
+
+    g_renderGlobals->deviceContext->DrawIndexedInstanced(g_boxBuffers.numIndices, 2, 0, 0, 0);
+}
+
 void DrawRigidBody(const hkpRigidBody *rigidBody, float drawDistance, bool isFixed)
 {
     bhkRigidBody *wrapper = (bhkRigidBody *)rigidBody->m_userData;
@@ -1305,7 +1344,14 @@ void DrawRigidBody(const hkpRigidBody *rigidBody, float drawDistance, bool isFix
     }
 
     ShapeIdentifier shapeIdentifier = { wrapper, rigidBody, shapeWrapper, shape };
-    DrawShape(shapeIdentifier, shape, hkTransformToNiTransform(transform), color);
+
+    if (Config::options.drawAABBs) {
+        hkAabb aabb; shape->getAabb(transform, 0.001f, aabb);
+        DrawAabb(shapeIdentifier, aabb, color);
+    }
+    else {
+        DrawShape(shapeIdentifier, shape, hkTransformToNiTransform(transform), color);
+    }
 
     if (Config::options.drawCenterOfMass && !isFixed) {
         NiPoint3 centerOfMass = HkVectorToNiPoint(rigidBody->getCenterOfMassInWorld()) * *g_inverseHavokWorldScale;
@@ -1321,51 +1367,6 @@ void DrawRigidBody(const hkpRigidBody *rigidBody, float drawDistance, bool isFix
             DrawConstraint(constraint);
         }
     }
-}
-
-void DrawAabb(const ShapeIdentifier &shapeIdentifier, const hkAabb &aabb, const NiColorA &color)
-{
-    auto &it = g_shapeBuffers.find(shapeIdentifier);
-    if (it == g_shapeBuffers.end()) {
-        // First compute the half extents
-        hkVector4 halfExtents;
-        hkVector4 sub; sub.setSub4(aabb.m_max, aabb.m_min);
-        halfExtents.setMul4({ 0.5f, 0.5f, 0.5f, 0.5f }, sub);
-
-        // Now compute the center
-        hkVector4 center; center.setAdd4(aabb.m_min, halfExtents);
-
-        auto [vertices, indices] = GetBoxVertices(halfExtents, 0.f, HkVectorToNiPoint(center));
-        g_shapeBuffers[shapeIdentifier] = CreateVertexAndIndexBuffers(vertices, indices);
-
-        it = g_shapeBuffers.find(shapeIdentifier);
-    }
-
-    if (it->second.numIndices == 0) return;
-
-    UINT stride = sizeof(Vertex);
-    UINT offset = 0;
-    g_renderGlobals->deviceContext->IASetVertexBuffers(0, 1, it->second.vertexBuffer.GetAddressOf(), &stride, &offset);
-    g_renderGlobals->deviceContext->IASetIndexBuffer(it->second.indexBuffer.Get(), DXGI_FORMAT_R16_UINT, 0);
-
-    { // Model data (object transform)
-
-        // Each eye
-        NiTransform transform = NiTransform(); // identity
-        PerObjectVSData modelData;
-        XMMATRIXFromNiTransform(&modelData.matModel[0], &transform, 0);
-        XMMATRIXFromNiTransform(&modelData.matModel[1], &transform, 1);
-        modelData.color = color;
-
-        D3D11_MAPPED_SUBRESOURCE mappedResource;
-        g_renderGlobals->deviceContext->Map(g_modelBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
-        memcpy(mappedResource.pData, &modelData, sizeof(PerObjectVSData));
-        g_renderGlobals->deviceContext->Unmap(g_modelBuffer, 0);
-
-        SetVSConstantBuffer(1, g_modelBuffer);
-    }
-
-    g_renderGlobals->deviceContext->DrawIndexedInstanced(it->second.numIndices, 2, 0, 0, 0);
 }
 
 void DrawPhantom(hkpPhantom *phantom, float drawDistance)
@@ -1553,6 +1554,9 @@ void DoColorPass_NiCamera_FinishAccumulatingPostResolveDepth_Hook(NiCamera *came
 
             auto [vertices, indices] = GetSphereVertices(1.f);
             g_sphereBuffers = CreateVertexAndIndexBuffers(vertices, indices);
+
+            auto[boxVertices, boxIndices] = GetBoxVertices({ *g_havokWorldScale, *g_havokWorldScale, *g_havokWorldScale }, 0.f);
+            g_boxBuffers = CreateVertexAndIndexBuffers(boxVertices, boxIndices);
 
             g_drawInitialized = true;
         }
